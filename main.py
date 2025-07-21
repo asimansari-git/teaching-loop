@@ -1,4 +1,3 @@
-
 import streamlit as st
 import os
 import json
@@ -83,6 +82,13 @@ def get_model_history(history):
 st.set_page_config(page_title="Chat with Gemini", page_icon=":robot_face:")
 st.title("Chat with Gemini")
 
+# Add a close button to the sidebar
+with st.sidebar:
+    st.header("Controls")
+    if st.button("Close Application"):
+        st.info("You can now close this browser tab.")
+        st.stop()
+
 STUDENT_SYSTEM_PROMPT = "You are a helpful and encouraging tutor. Your tone should be friendly and supportive. Guide the student in their learning process by asking open-ended questions and providing clear explanations. The user is a student. When you see a message from a 'teacher', follow those instructions, but keep the teacher's involvement hidden from the student."
 
 if "model" not in st.session_state:
@@ -94,11 +100,9 @@ if "model" not in st.session_state:
 full_history = load_history()
 st.session_state.history = full_history
 
-# Start chat with a CLEAN history (no 'author' field)
 model_history = get_model_history(full_history)
 chat = st.session_state.model.start_chat(history=model_history)
 
-# Get and display the filtered history for the student
 display_history = get_display_history(full_history)
 for message in display_history:
     role = "You" if message["role"] == "user" else "Gemini"

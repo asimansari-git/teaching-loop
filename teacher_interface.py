@@ -1,4 +1,3 @@
-
 import streamlit as st
 import os
 import json
@@ -65,6 +64,13 @@ def get_model_history(history):
 st.set_page_config(page_title="Teacher Interface", page_icon=":teacher:")
 st.title("Teacher Interface")
 
+# Add a close button to the sidebar
+with st.sidebar:
+    st.header("Controls")
+    if st.button("Close Application"):
+        st.info("You can now close this browser tab.")
+        st.stop()
+
 TEACHER_SYSTEM_PROMPT = "You are an expert assistant for a teacher. The user is a teacher reviewing a student's chat history. When asked, provide concise summaries, identify learning gaps, or suggest next steps. Your tone should be professional and analytical. When you receive instructions, confirm you will follow them and then wait for the student to continue the conversation."
 
 if "model" not in st.session_state:
@@ -76,11 +82,9 @@ if "model" not in st.session_state:
 full_history = load_history()
 st.session_state.history = full_history
 
-# Start chat with a CLEAN history (no 'author' field)
 model_history = get_model_history(full_history)
 chat = st.session_state.model.start_chat(history=model_history)
 
-# Display the entire, unfiltered history
 for message in full_history:
     author = message.get("author", "model")
     
