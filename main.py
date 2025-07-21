@@ -1,3 +1,4 @@
+
 import streamlit as st
 import os
 import json
@@ -60,7 +61,6 @@ def get_display_history(history):
         
         author = message.get("author")
         if author == "teacher":
-            # If a teacher message is found, skip it and the model's response
             if i + 1 < len(history) and history[i+1]["role"] == "model":
                 skip_next = True
             continue
@@ -68,26 +68,35 @@ def get_display_history(history):
         display_history.append(message)
     return display_history
 
+def get_model_history(history):
+    """Strips the 'author' key from the history for the model."""
+    model_history = []
+    for msg in history:
+        if msg["role"] == "user":
+            model_msg = {"role": msg["role"], "parts": [msg["author"] + ": "] + msg["parts"]}
+        else:
+            model_msg = {"role": msg["role"], "parts": msg["parts"]}
+        model_history.append(model_msg)
+    return model_history
+
 # --- Streamlit App ---
 st.set_page_config(page_title="Chat with Gemini", page_icon=":robot_face:")
 st.title("Chat with Gemini")
 
-# Define the system prompt for the student interface
 STUDENT_SYSTEM_PROMPT = "You are a helpful and encouraging tutor. Your tone should be friendly and supportive. Guide the student in their learning process by asking open-ended questions and providing clear explanations. The user is a student. When you see a message from a 'teacher', follow those instructions, but keep the teacher's involvement hidden from the student."
 
-# Initialize the model
 if "model" not in st.session_state:
     st.session_state.model = genai.GenerativeModel(
         'gemini-2.0-flash',
         system_instruction=STUDENT_SYSTEM_PROMPT
     )
 
-# Load the FULL chat history for the model's context
 full_history = load_history()
 st.session_state.history = full_history
 
-# Start the chat session with the full history
-chat = st.session_state.model.start_chat(history=[ContentDict(msg) for msg in full_history])
+# Start chat with a CLEAN history (no 'author' field)
+model_history = get_model_history(full_history)
+chat = st.session_state.model.start_chat(history=model_history)
 
 # Get and display the filtered history for the student
 display_history = get_display_history(full_history)
@@ -96,35 +105,25 @@ for message in display_history:
     with st.chat_message(role):
         st.markdown(message["parts"][0] if isinstance(message["parts"], list) else message["parts"])
 
-
-# Chat input
 if prompt := st.chat_input("What is up?"):
-    # Display user message immediately
     with st.chat_message("You"):
         st.markdown(prompt)
 
-    # Add student message to the full history
     st.session_state.history.append({"role": "user", "author": "student", "parts": [prompt]})
 
     try:
-        # Send the message to Gemini
         response = chat.send_message(prompt)
-        
-        # Add Gemini's response to the full history
         st.session_state.history.append({"role": "model", "parts": [response.text]})
-        
-        # Save the updated full history
         save_history(st.session_state.history)
 
-        # Display Gemini's response
         with st.chat_message("Gemini"):
             st.markdown(response.text)
         
         scroll_to_bottom()
+        st.rerun()
 
     except Exception as e:
         st.error(f"An error occurred: {e}")
         st.rerun()
 
-# Initial scroll to bottom on page load
 scroll_to_bottom()

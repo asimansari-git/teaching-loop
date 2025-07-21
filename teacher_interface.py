@@ -1,3 +1,4 @@
+
 import streamlit as st
 import os
 import json
@@ -49,73 +50,61 @@ def save_history(history):
     with open(CHAT_HISTORY_FILE, "w") as f:
         json.dump(history, f, indent=4)
 
+def get_model_history(history):
+    """Strips the 'author' key from the history for the model."""
+    model_history = []
+    for msg in history:
+        if msg["role"] == "user":
+            model_msg = {"role": msg["role"], "parts": [msg["author"] + ": "] + msg["parts"]}
+        else:
+            model_msg = {"role": msg["role"], "parts": msg["parts"]}
+        model_history.append(model_msg)
+    return model_history
+
 # --- Streamlit App ---
 st.set_page_config(page_title="Teacher Interface", page_icon=":teacher:")
 st.title("Teacher Interface")
 
-# Define the system prompt for the teacher interface
 TEACHER_SYSTEM_PROMPT = "You are an expert assistant for a teacher. The user is a teacher reviewing a student's chat history. When asked, provide concise summaries, identify learning gaps, or suggest next steps. Your tone should be professional and analytical. When you receive instructions, confirm you will follow them and then wait for the student to continue the conversation."
 
-# Initialize the model
 if "model" not in st.session_state:
     st.session_state.model = genai.GenerativeModel(
         'gemini-2.0-flash',
         system_instruction=TEACHER_SYSTEM_PROMPT
     )
 
-# Load the FULL shared chat history
 full_history = load_history()
 st.session_state.history = full_history
 
-# Start the chat session with the full history
-chat = st.session_state.model.start_chat(history=[ContentDict(msg) for msg in full_history])
+# Start chat with a CLEAN history (no 'author' field)
+model_history = get_model_history(full_history)
+chat = st.session_state.model.start_chat(history=model_history)
 
 # Display the entire, unfiltered history
 for message in full_history:
-    author = message.get("author", "model") # Default to model for AI responses
+    author = message.get("author", "model")
     
     if author == "student":
-        role_display = "Student"
-        avatar = "🧑‍🎓"
+        role_display, avatar = "Student", "🧑‍🎓"
     elif author == "teacher":
-        role_display = "You (Teacher)"
-        avatar = "🧑‍🏫"
-    else: # Gemini
-        role_display = "Gemini"
-        avatar = "🤖"
+        role_display, avatar = "You (Teacher)", "🧑‍🏫"
+    else:
+        role_display, avatar = "Gemini", "🤖"
 
     with st.chat_message(name=role_display, avatar=avatar):
         st.markdown(message["parts"][0] if isinstance(message["parts"], list) else message["parts"])
 
-# Chat input for the teacher
 if prompt := st.chat_input("Instruct the AI or continue the conversation..."):
-    # Display teacher's message immediately
-    with st.chat_message(name="You (Teacher)", avatar="🧑‍🏫"):
-        st.markdown(prompt)
-
-    # Add teacher message to the full history
     st.session_state.history.append({"role": "user", "author": "teacher", "parts": [prompt]})
 
     try:
-        # Send the message to Gemini
         response = chat.send_message(prompt)
-        
-        # Add Gemini's response to the full history
         st.session_state.history.append({"role": "model", "parts": [response.text]})
-        
-        # Save the updated full history
         save_history(st.session_state.history)
-
-        # Display Gemini's response
-        with st.chat_message(name="Gemini", avatar="🤖"):
-            st.markdown(response.text)
-        
-        scroll_to_bottom()
-        st.rerun() # Rerun to display the new messages in the history log correctly
+        st.rerun()
 
     except Exception as e:
         st.error(f"An error occurred: {e}")
         st.rerun()
 
-# Initial scroll to bottom on page load
 scroll_to_bottom()
