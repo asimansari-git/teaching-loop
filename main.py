@@ -1,12 +1,27 @@
+
 import streamlit as st
 import os
-import json
 import google.generativeai as genai
 from google.generativeai.types import ContentDict
 from streamlit.components.v1 import html
+from pymongo import MongoClient, ASCENDING
+from datetime import datetime, timezone
+from dotenv import load_dotenv
+load_dotenv()
 
-# Define the path for the chat history file
-CHAT_HISTORY_FILE = "chat_history.json"
+# --- Database Setup ---
+MONGO_URI = os.getenv("MONGO_URI")
+if not MONGO_URI:
+    st.error("MONGO_URI not found in environment variables. Please set it in your .env file.")
+    st.stop()
+
+client = MongoClient(MONGO_URI)
+db = client.teaching_loop_db
+collection = db.chat_history
+
+# Create a timestamp index if it doesn't exist
+collection.create_index([("timestamp", ASCENDING)])
+
 
 # --- Auto-scrolling script ---
 def scroll_to_bottom():
@@ -35,19 +50,12 @@ else:
 
 # --- Chat History Functions ---
 def load_history():
-    """Loads chat history, preserving the author field."""
-    if os.path.exists(CHAT_HISTORY_FILE):
-        with open(CHAT_HISTORY_FILE, "r") as f:
-            try:
-                return json.load(f)
-            except json.JSONDecodeError:
-                return []
-    return []
+    """Loads chat history from MongoDB."""
+    return list(collection.find().sort("timestamp", ASCENDING))
 
-def save_history(history):
-    """Saves chat history, including the author field."""
-    with open(CHAT_HISTORY_FILE, "w") as f:
-        json.dump(history, f, indent=4)
+def save_message(message):
+    """Saves a single message to MongoDB."""
+    collection.insert_one(message)
 
 def get_display_history(history):
     """Filters history for student display."""
@@ -68,21 +76,22 @@ def get_display_history(history):
     return display_history
 
 def get_model_history(history):
-    """Strips the 'author' key from the history for the model."""
+    """Prepares history for the model, enriching the role."""
     model_history = []
     for msg in history:
-        if msg["role"] == "user":
-            model_msg = {"role": msg["role"], "parts": [msg["author"] + ": "] + msg["parts"]}
+        role = msg["role"]
+        if role == "user":
+            # Prepend author to the first part of the message content
+            parts = [f"{msg.get('author', 'user')}: {msg['parts'][0]}"] + msg['parts'][1:]
         else:
-            model_msg = {"role": msg["role"], "parts": msg["parts"]}
-        model_history.append(model_msg)
+            parts = msg['parts']
+        model_history.append({"role": role, "parts": parts})
     return model_history
 
 # --- Streamlit App ---
 st.set_page_config(page_title="Chat with Gemini", page_icon=":robot_face:")
 st.title("Chat with Gemini")
 
-# Add a close button to the sidebar
 with st.sidebar:
     st.header("Controls")
     if st.button("Close Application"):
@@ -98,8 +107,6 @@ if "model" not in st.session_state:
     )
 
 full_history = load_history()
-st.session_state.history = full_history
-
 model_history = get_model_history(full_history)
 chat = st.session_state.model.start_chat(history=model_history)
 
@@ -107,18 +114,29 @@ display_history = get_display_history(full_history)
 for message in display_history:
     role = "You" if message["role"] == "user" else "Gemini"
     with st.chat_message(role):
-        st.markdown(message["parts"][0] if isinstance(message["parts"], list) else message["parts"])
+        st.markdown(message["parts"][0])
 
 if prompt := st.chat_input("What is up?"):
     with st.chat_message("You"):
         st.markdown(prompt)
 
-    st.session_state.history.append({"role": "user", "author": "student", "parts": [prompt]})
+    user_message = {
+        "role": "user", 
+        "author": "student", 
+        "parts": [prompt],
+        "timestamp": datetime.now(timezone.utc)
+    }
+    save_message(user_message)
 
     try:
         response = chat.send_message(prompt)
-        st.session_state.history.append({"role": "model", "parts": [response.text]})
-        save_history(st.session_state.history)
+        
+        model_message = {
+            "role": "model",
+            "parts": [response.text],
+            "timestamp": datetime.now(timezone.utc)
+        }
+        save_message(model_message)
 
         with st.chat_message("Gemini"):
             st.markdown(response.text)
