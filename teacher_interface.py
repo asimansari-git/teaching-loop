@@ -1,9 +1,8 @@
 import streamlit as st
 import os
+import json
 import google.generativeai as genai
 from streamlit.components.v1 import html
-from pymongo import MongoClient, ASCENDING
-from datetime import datetime, timezone
 from dotenv import load_dotenv
 
 # --- Initial Setup ---
@@ -16,25 +15,8 @@ if not api_key:
     st.stop()
 genai.configure(api_key=api_key)
 
-# --- Database Setup ---
-MONGO_URI = os.getenv("MONGO_URI")
-if not MONGO_URI:
-    st.error("MONGO_URI not found. Please set it in your .env file.")
-    st.stop()
-
-@st.cache_resource
-def get_mongo_client():
-    return MongoClient(MONGO_URI)
-
-@st.cache_resource
-def get_chat_collection():
-    client = get_mongo_client()
-    db = client.teaching_loop_db
-    collection = db.chat_history
-    collection.create_index([("timestamp", ASCENDING)])
-    return collection
-
-collection = get_chat_collection()
+# Define the path for the chat history file
+CHAT_HISTORY_FILE = "chat_history.json"
 
 # --- Helper Functions ---
 def scroll_to_bottom():
@@ -51,12 +33,22 @@ def scroll_to_bottom():
     html(js, height=0)
 
 def load_history():
-    return list(collection.find().sort("timestamp", ASCENDING))
+    """Loads chat history from a JSON file."""
+    if os.path.exists(CHAT_HISTORY_FILE):
+        with open(CHAT_HISTORY_FILE, "r") as f:
+            try:
+                return json.load(f)
+            except json.JSONDecodeError:
+                return []
+    return []
 
-def save_message(message):
-    collection.insert_one(message)
+def save_history(history):
+    """Saves the entire chat history to a JSON file."""
+    with open(CHAT_HISTORY_FILE, "w") as f:
+        json.dump(history, f, indent=4)
 
 def get_model_history(history):
+    """Prepares history for the model, enriching the role."""
     model_history = []
     for msg in history:
         role = msg["role"]
@@ -68,8 +60,8 @@ def get_model_history(history):
     return model_history
 
 # --- Streamlit App ---
-st.set_page_config(page_title="Teacher Interface", page_icon=":teacher:")
-st.title("Teacher Interface")
+st.set_page_config(page_title="Director Interface", page_icon=":detective:")
+st.title("Director Interface")
 
 with st.sidebar:
     st.header("Controls")
@@ -77,29 +69,23 @@ with st.sidebar:
         st.info("You can now close this browser tab.")
         st.stop()
 
-# --- Session State Initialization ---
-if "history" not in st.session_state:
-    st.session_state.history = load_history()
+# --- Model and History Initialization (on every run for sync) ---
+model = genai.GenerativeModel(
+    'gemini-2.0-flash',
+    system_instruction="You are an AI assistant speaking with a director. The director is observing a conversation you are having with a user. Your job is to follow the director's instructions, provide summaries, and analyze the user's conversation when asked. Your tone should be that of a helpful, professional colleague. When the director gives an instruction, confirm you will follow it and then wait for the primary user to continue the conversation."
+)
 
-if "model" not in st.session_state:
-    st.session_state.model = genai.GenerativeModel(
-        'gemini-2.0-flash',
-        system_instruction="You are an expert assistant for a teacher. The user is a teacher reviewing a student's chat history. When asked, provide concise summaries, identify learning gaps, or suggest next steps. Your tone should be professional and analytical. When you receive instructions, confirm you will follow them and then wait for the student to continue the conversation."
-    )
-
-if "chat" not in st.session_state:
-    model_history = get_model_history(st.session_state.history)
-    st.session_state.chat = st.session_state.model.start_chat(history=model_history)
-
+history = load_history()
+chat = model.start_chat(history=get_model_history(history))
 
 # --- Display Chat History ---
-for message in st.session_state.history:
+for message in history:
     author = message.get("author", "model")
     
-    if author == "student":
-        role_display, avatar = "Student", "🧑‍🎓"
-    elif author == "teacher":
-        role_display, avatar = "You (Teacher)", "🧑‍🏫"
+    if author == "user":
+        role_display, avatar = "User", "🧑‍💻"
+    elif author == "director":
+        role_display, avatar = "You (Director)", "🕵️"
     else:
         role_display, avatar = "Gemini", "🤖"
 
@@ -110,29 +96,21 @@ for message in st.session_state.history:
 if prompt := st.chat_input("Instruct the AI or continue the conversation..."):
     user_message = {
         "role": "user", 
-        "author": "teacher", 
-        "parts": [prompt],
-        "timestamp": datetime.now(timezone.utc)
+        "author": "director", 
+        "parts": [prompt]
     }
+    history.append(user_message)
 
     try:
-        # Use the stateful chat session
-        response = st.session_state.chat.send_message(prompt)
+        response = chat.send_message(prompt)
         
         model_message = {
             "role": "model",
-            "parts": [response.text],
-            "timestamp": datetime.now(timezone.utc)
+            "parts": [response.text]
         }
+        history.append(model_message)
         
-        # Save only the new messages
-        save_message(user_message)
-        save_message(model_message)
-
-        # Update in-memory history
-        st.session_state.history.append(user_message)
-        st.session_state.history.append(model_message)
-        
+        save_history(history)
         st.rerun()
 
     except Exception as e:
