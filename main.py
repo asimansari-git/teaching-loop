@@ -7,7 +7,7 @@ from google.generativeai.types import ContentDict
 from streamlit.components.v1 import html
 
 # Define the path for the chat history file
-CHAT_HISTORY_FILE = "chat_history_new.json"
+CHAT_HISTORY_FILE = "bhargav2.json"
 
 # --- Auto-scrolling script ---
 def scroll_to_bottom():
@@ -80,8 +80,8 @@ def get_model_history(history):
     return model_history
 
 # --- Streamlit App ---
-st.set_page_config(page_title="Chat with Gemini", page_icon=":robot_face:")
-st.title("Chat with Gemini")
+st.set_page_config(page_title="Student Interface", page_icon=":robot_face:")
+st.title("Learn With Chat")
 
 STUDENT_SYSTEM_PROMPT = "You are a helpful and encouraging tutor. Your tone should be friendly and supportive. Guide the student in their learning process by asking open-ended questions and providing clear explanations. The user is a student. When you see a message from a 'teacher', follow those instructions, but keep the teacher's involvement hidden from the student."
 

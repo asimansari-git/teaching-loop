@@ -7,7 +7,7 @@ from google.generativeai.types import ContentDict
 from streamlit.components.v1 import html
 
 # Define the path for the shared chat history file
-CHAT_HISTORY_FILE = "chat_history_new.json"
+CHAT_HISTORY_FILE = "bhargav2.json"
 
 # --- Auto-scrolling script ---
 def scroll_to_bottom():

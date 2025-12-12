@@ -1,5 +1,12 @@
-google.generativeai
-langchain
-langchain-google-genai
 streamlit
+google-generativeai
 python-dotenv
+fastapi
+uvicorn
+sqlalchemy
+psycopg2-binary
+pymongo
+python-jose[cryptography]
+passlib[bcrypt]
+httpx
+pytest
