@@ -48,7 +48,7 @@ with tab2:
 
         with col2:
             st.write("**Generate New Report**")
-            subject = st.selectbox("Subject", ["Math", "Science", "History", "General"])
+            subject = st.selectbox("Subject", ["C#", "SQL Server", ".NET", "General"])
             if st.button("Generate Report"):
                 with st.spinner("Analyzing chat history and generating report..."):
                     new_report = generate_report(selected_student["id"], subject, st.session_state["token"])
