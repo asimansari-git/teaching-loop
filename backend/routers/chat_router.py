@@ -17,6 +17,7 @@ class ChatResponse(BaseModel):
 
 @router.post("/", response_model=ChatResponse)
 async def chat(request: ChatRequest, current_user: models.User = Depends(auth.get_current_user)):
+    print("IN_CHAT")
     try:
         response_text = await chat_service.generate_response(
             username=current_user.username,
@@ -24,6 +25,7 @@ async def chat(request: ChatRequest, current_user: models.User = Depends(auth.ge
             subject=request.subject,
             role=current_user.role
         )
+        print("IN_TRY")
         return {"response": response_text}
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))

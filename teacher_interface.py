@@ -95,7 +95,7 @@ for message in full_history:
         st.markdown(message["parts"][0] if isinstance(message["parts"], list) else message["parts"])
 
 if prompt := st.chat_input("Instruct the AI or continue the conversation..."):
-    st.session_state.history.append({"role": "user", "author": "teacher", "parts": [prompt]})
+    st.session_state.history.append({"role":parts "user", "author": "teacher", "parts": [prompt]})
 
     try:
         response = chat.send_message(prompt)
