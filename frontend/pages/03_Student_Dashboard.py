@@ -16,7 +16,16 @@ if "token" not in st.session_state or st.session_state.get("role") != "student":
 st.title(f"Welcome, {st.session_state['username']}! 👋")
 st.subheader("Your Personal AI Tutor")
 
-subject = st.sidebar.selectbox("Select Subject", ["General", "Math", "Science", "History"])
+SUBJECTS = {
+    "C#": ["Syntax", "OOP", "Async/Await", "LINQ", "Delegates & Events"],
+    "SQL Server": ["T-SQL", "Indexing", "Stored Procedures", "Joins", "Transactions"],
+    ".NET": ["CLR", "Garbage Collection", "ASP.NET Core", "Entity Framework", "Dependency Injection"],
+    "General": ["General"]
+}
+
+subject = st.sidebar.selectbox("Select Subject", list(SUBJECTS.keys()))
+available_topics = SUBJECTS.get(subject, [])
+selected_topics = st.sidebar.multiselect("Select Topics (Optional)", available_topics)
 
 # --- Chat Interface ---
 if "messages" not in st.session_state:
@@ -49,7 +58,7 @@ if prompt := st.chat_input("Ask me anything..."):
 
     # Send to backend
     with st.spinner("Thinking..."):
-        response_text = send_chat_message(prompt, subject, st.session_state["token"])
+        response_text = send_chat_message(prompt, subject, st.session_state["token"], selected_topics)
     
     if response_text:
         # Add assistant response to state and display

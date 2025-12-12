@@ -27,12 +27,12 @@ def register_user(username, password, role):
         st.error(f"Connection error: {e}")
         return False
 
-def send_chat_message(prompt, subject, token):
+def send_chat_message(prompt, subject, token, topics=[]):
     headers = {"Authorization": f"Bearer {token}"}
     try:
         response = httpx.post(
             f"{API_URL}/chat/",
-            json={"prompt": prompt, "subject": subject},
+            json={"prompt": prompt, "subject": subject, "topics": topics},
             headers=headers,
             timeout=60.0
         )

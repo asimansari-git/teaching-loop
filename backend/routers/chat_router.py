@@ -11,6 +11,7 @@ router = APIRouter(
 class ChatRequest(BaseModel):
     prompt: str
     subject: str = "general"
+    topics: List[str] = []
 
 class ChatResponse(BaseModel):
     response: str
@@ -23,6 +24,7 @@ async def chat(request: ChatRequest, current_user: models.User = Depends(auth.ge
             username=current_user.username,
             prompt=request.prompt,
             subject=request.subject,
+            topics=request.topics,
             role=current_user.role
         )
         print("IN_TRY")

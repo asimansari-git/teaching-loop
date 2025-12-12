@@ -39,7 +39,7 @@ def save_message(username: str, role: str, content: str, subject: str = "general
         upsert=True
     )
 
-async def generate_response(username: str, prompt: str, subject: str = "general", role: str = "student"):
+async def generate_response(username: str, prompt: str, subject: str = "general", topics: list[str] = [], role: str = "student"):
     print("IN_GENERATE")
     
     # 1. Initialize the new Client
@@ -52,10 +52,11 @@ async def generate_response(username: str, prompt: str, subject: str = "general"
     # 3. Adapt History to New SDK 'Content' Types
     # The new SDK expects a list of types.Content objects
     sdk_contents = []
+    print("HISTORY: ", history)
     for msg in history:
         # Create a Part object (handles text/images/etc)
         # Assuming msg["parts"] is a string (text)
-        part = types.Part.from_text(text=msg["parts"])
+        part = types.Part.from_text(text=msg["parts"][0])
         
         # Create Content object
         content = types.Content(role=msg["role"], parts=[part])
@@ -63,6 +64,7 @@ async def generate_response(username: str, prompt: str, subject: str = "general"
 
     # 4. Add the NEW Prompt to the content list
     # (In the new stateless approach, we send History + New Prompt together)
+    print("SDK CONTENTS: ", sdk_contents)
     sdk_contents.append(
         types.Content(
             role="user", 
@@ -71,8 +73,14 @@ async def generate_response(username: str, prompt: str, subject: str = "general"
     )
 
     # 5. Configure System Instructions
-    system_text = STUDENT_SYSTEM_PROMPT if role == "student" else TEACHER_SYSTEM_PROMPT
+    base_system_text = STUDENT_SYSTEM_PROMPT if role == "student" else TEACHER_SYSTEM_PROMPT
     
+    if role == "student":
+        topics_str = ", ".join(topics) if topics else "general concepts"
+        system_text = f"{base_system_text}\n\nCurrent Subject: {subject}\nFocus Topics: {topics_str}\nEnsure all examples and explanations are relevant to the selected subject and topics."
+    else:
+        system_text = base_system_text
+
     config = types.GenerateContentConfig(
         system_instruction=[types.Part.from_text(text=system_text)],
         temperature=0.7, # Optional: Adjust creativity
