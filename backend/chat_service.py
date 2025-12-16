@@ -135,6 +135,8 @@ async def generate_response(session_id: str, prompt: str, role: str = "student")
             sdk_contents.append(content)
 
     # 4. Add the NEW Prompt
+    if(role != "student"):
+        prompt = f"Teacher: {prompt}"
     sdk_contents.append(
         types.Content(
             role="user", 
@@ -157,11 +159,11 @@ async def generate_response(session_id: str, prompt: str, role: str = "student")
         max_output_tokens=1000
     )
 
-    print(f"MODEL: gemini-flash-lite-latest (Session {session_id})") 
+    print(f"MODEL: gemini-flash-latest (Session {session_id})") 
     
     try:
         response = client.models.generate_content(
-            model="gemini-flash-lite-latest", 
+            model="gemini-flash-latest", 
             contents=sdk_contents,
             config=config
         )
@@ -170,7 +172,7 @@ async def generate_response(session_id: str, prompt: str, role: str = "student")
 
         # 7. Save to Database (Session)
         save_message_to_session(session_id, "user", prompt, author=role)
-        save_message_to_session(session_id, "model", response.text)
+        save_message_to_session(session_id, "model", response.text, author=role)
         
         return response.text
 

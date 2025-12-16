@@ -5,7 +5,7 @@ import pandas as pd
 
 # Add parent directory to path to import utils
 sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), '..')))
-from utils import get_students, generate_report, get_student_reports, get_student_sessions_for_teacher
+from utils import get_students, generate_report, get_student_reports, get_student_sessions_for_teacher, get_session_history_by_id, send_chat_message
 
 st.set_page_config(page_title="Teacher Dashboard", page_icon="🧑‍🏫")
 
@@ -15,7 +15,7 @@ if "token" not in st.session_state or st.session_state.get("role") != "teacher":
 
 st.title(f"Teacher Dashboard - {st.session_state['username']}")
 
-tab1, tab2 = st.tabs(["Student List", "Reports"])
+tab1, tab2, tab3 = st.tabs(["Student List", "Reports", "Intervention"])
 
 students = get_students(st.session_state["token"])
 
@@ -26,6 +26,68 @@ with tab1:
         st.dataframe(df[["id", "username", "role"]])
     else:
         st.info("No students found.")
+
+with tab3:
+    st.subheader("Intervention Mode")
+    if students:
+        selected_student_username_int = st.selectbox("Select Student for Intervention", [s["username"] for s in students])
+        # Fetch sessions
+        sessions_int = get_student_sessions_for_teacher(selected_student_username_int, st.session_state["token"])
+        
+        if sessions_int:
+            session_options_int = {s["title"]: s for s in sessions_int}
+            selected_session_title_int = st.selectbox("Select Session to Join", list(session_options_int.keys()))
+            selected_session_int = session_options_int[selected_session_title_int]
+            session_id_int = selected_session_int["session_id"]
+            
+            st.divider()
+            st.write(f"**Chat History: {selected_session_title_int}**")
+            
+            # Fetch and display history
+            history_int = get_session_history_by_id(session_id_int, st.session_state["token"])
+            
+            # Display Chat (Container for scroll)
+            chat_container = st.container(height=400)
+            with chat_container:
+                for message in history_int:
+                    role = message["role"]
+                    author = message.get("author")
+                    
+                    parts = message.get("parts", [])
+                    content = parts[0] if isinstance(parts, list) and parts else str(parts)
+                    
+                    if role == "user":
+                        if author == "teacher":
+                            with st.chat_message("user", avatar="🧑‍🏫"):
+                                st.write(f"*(Teacher Instruction)*: {content}")
+                        else:
+                            with st.chat_message("user"):
+                                st.markdown(content)
+                    else:
+                        with st.chat_message("assistant"):
+                            st.markdown(content)
+            
+            # Teacher Input
+            if prompt_int := st.chat_input("Send instruction to AI (Hidden from Student)..."):
+                with st.spinner("Sending instruction..."):
+                     # Send with updated logic if possible, or reliance on backend knowing user is teacher
+                     # The backend routers/chat_router.py uses current_user.role.
+                     # If user is teacher, author will be set to "teacher"?
+                     # Let's check backend/routers/chat_router.py logic... 
+                     # It calls chat_service.generate_response(..., role=current_user.role).
+                     # And chat_service.generate_response calls save_message(..., author=role).
+                     # So as long as we are logged in as teacher, author="teacher". Correct.
+                     
+                     response_text = send_chat_message(prompt_int, session_id_int, st.session_state["token"])
+                     if response_text:
+                         st.success("Instruction sent!")
+                         st.rerun()
+                     else:
+                         st.error("Failed to send instruction.")
+        else:
+             st.info("Selected student has no active sessions.")
+    else:
+        st.warning("No students available.")
 
 with tab2:
     st.subheader("Student Reports")

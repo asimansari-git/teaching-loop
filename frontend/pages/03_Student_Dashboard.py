@@ -74,7 +74,11 @@ else:
              content = parts
         else:
              content = ""
-             
+        # Filter out teacher instructions (Intervention)
+        author = message.get("author")
+        if author == "teacher":
+            continue
+
         if role == "user":
             with st.chat_message("user"):
                 st.markdown(content)

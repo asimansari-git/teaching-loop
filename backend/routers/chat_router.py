@@ -29,6 +29,7 @@ class ChatResponse(BaseModel):
 
 @router.post("/{session_id}", response_model=ChatResponse)
 async def send_message(session_id: str, request: MessageRequest, current_user: models.User = Depends(auth.get_current_user)):
+    print(f"SESSION ID: {session_id}")
     try:
         response_text = await chat_service.generate_response(
             session_id=session_id,
