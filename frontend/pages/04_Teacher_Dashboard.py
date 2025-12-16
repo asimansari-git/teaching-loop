@@ -5,7 +5,7 @@ import pandas as pd
 
 # Add parent directory to path to import utils
 sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), '..')))
-from utils import get_students, generate_report, get_student_reports
+from utils import get_students, generate_report, get_student_reports, get_student_sessions_for_teacher
 
 st.set_page_config(page_title="Teacher Dashboard", page_icon="🧑‍🏫")
 
@@ -43,19 +43,41 @@ with tab2:
                 for report in reports:
                     with st.expander(f"{report['subject']} - {report['created_at']}"):
                         st.markdown(report['content'])
+                        st.download_button(
+                            label="Download Report",
+                            data=report['content'],
+                            file_name=f"report_{selected_student['username']}_{report['subject']}.md",
+                            mime="text/markdown",
+                            key=f"download_{report['id']}"
+                        )
             else:
                 st.info("No reports available.")
 
         with col2:
             st.write("**Generate New Report**")
-            subject = st.selectbox("Subject", ["C#", "SQL Server", ".NET", "General"])
-            if st.button("Generate Report"):
-                with st.spinner("Analyzing chat history and generating report..."):
-                    new_report = generate_report(selected_student["id"], subject, st.session_state["token"])
-                    if new_report:
-                        st.success("Report generated successfully!")
-                        st.rerun()
-                    else:
-                        st.error("Failed to generate report. Check if chat history exists.")
+            
+            # Fetch sessions for the selected student
+            sessions = get_student_sessions_for_teacher(selected_student_username, st.session_state["token"])
+            
+            if sessions:
+                session_options = {s["title"]: s for s in sessions}
+                selected_session_title = st.selectbox("Select Session", list(session_options.keys()))
+                selected_session = session_options[selected_session_title]
+                
+                if st.button("Generate Report"):
+                    with st.spinner("Analyzing chat history and generating report..."):
+                        new_report = generate_report(
+                            selected_student["id"], 
+                            selected_session["session_id"],
+                            selected_session["subject"],
+                            st.session_state["token"]
+                        )
+                        if new_report:
+                            st.success("Report generated successfully!")
+                            st.rerun()
+                        else:
+                            st.error("Failed to generate report.")
+            else:
+                st.info("Student has no chat sessions.")
     else:
         st.warning("No students available to generate reports for.")

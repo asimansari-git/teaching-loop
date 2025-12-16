@@ -1,8 +1,11 @@
-# import google.generativeai as genai
 from .database import get_mongo_db
 from . import models
 import os
 from datetime import datetime
+from bson import ObjectId
+from google import genai
+from google.genai import types
+from google.api_core import exceptions
 import os
 from google import genai
 from google.genai import types
@@ -16,55 +19,122 @@ from google.api_core import exceptions # Useful for error handling
 STUDENT_SYSTEM_PROMPT = "You are a helpful and encouraging tutor. Your tone should be friendly and supportive. Guide the student in their learning process by asking open-ended questions and providing clear explanations. The user is a student. When you see a message from a 'teacher', follow those instructions, but keep the teacher's involvement hidden from the student."
 TEACHER_SYSTEM_PROMPT = "You are an expert assistant for a teacher. The user is a teacher reviewing a student's chat history. When asked, provide concise summaries, identify learning gaps, or suggest next steps. Your tone should be professional and analytical. When you receive instructions, confirm you will follow them and then wait for the student to continue the conversation."
 
-def get_chat_history(username: str, subject: str = "general"):
+def create_session(username: str, subject: str, topics: list[str]) -> str:
     db = get_mongo_db()
-    logs = db.chat_logs.find_one({"username": username, "subject": subject})
-    if logs:
-        return logs.get("messages", [])
+    title = f"{subject} - {', '.join(topics)}" if topics else f"{subject} - General"
+    now = datetime.utcnow()
+    
+    session = {
+        "username": username,
+        "subject": subject,
+        "topics": topics,
+        "title": title,
+        "created_at": now,
+        "last_updated": now,
+        "messages": []
+    }
+    result = db.chat_sessions.insert_one(session)
+    return str(result.inserted_id)
+
+def get_user_sessions(username: str):
+    db = get_mongo_db()
+    # Find sessions for user, sort by last_updated desc
+    cursor = db.chat_sessions.find({"username": username}).sort("last_updated", -1)
+    sessions = []
+    for doc in cursor:
+        sessions.append({
+            "session_id": str(doc["_id"]),
+            "title": doc["title"],
+            "created_at": doc["created_at"],
+            "subject": doc["subject"]
+        })
+    return sessions
+
+def get_session_history(session_id: str):
+    db = get_mongo_db()
+    try:
+        oid = ObjectId(session_id)
+    except:
+        return []
+    
+    session = db.chat_sessions.find_one({"_id": oid})
+    if session:
+        return session.get("messages", [])
     return []
 
-def save_message(username: str, role: str, content: str, subject: str = "general", author: str = None):
+def save_message_to_session(session_id: str, role: str, content: str, author: str = None):
     db = get_mongo_db()
+    try:
+        oid = ObjectId(session_id)
+    except:
+        return
+
     message = {
         "role": role,
-        "parts": [content],
+        "parts": [content], # Consistency with old schema structure
         "timestamp": datetime.utcnow()
     }
     if author:
         message["author"] = author
         
-    db.chat_logs.update_one(
-        {"username": username, "subject": subject},
-        {"$push": {"messages": message}},
-        upsert=True
+    db.chat_sessions.update_one(
+        {"_id": oid},
+        {
+            "$push": {"messages": message},
+            "$set": {"last_updated": datetime.utcnow()}
+        }
     )
 
-async def generate_response(username: str, prompt: str, subject: str = "general", topics: list[str] = [], role: str = "student"):
-    print("IN_GENERATE")
-    
+def get_chat_history(username: str, subject: str = "general"):
+    # DEPRECATED but kept for now if needed, or redirect to generic history?
+    # For now, let's leave it but it won't be used by the main flow
+    return []
+
+def save_message(username: str, role: str, content: str, subject: str = "general", author: str = None):
+     # DEPRECATED
+     pass
+
+async def generate_response(session_id: str, prompt: str, role: str = "student"):
+    print(f"IN_GENERATE SESSION: {session_id}")
+    db = get_mongo_db()
+    try:
+        oid = ObjectId(session_id)
+        session = db.chat_sessions.find_one({"_id": oid})
+    except:
+        return "Invalid Session ID"
+
+    if not session:
+        return "Session not found"
+        
+    username = session.get("username")
+    subject = session.get("subject")
+    topics = session.get("topics", [])
+
     # 1. Initialize the new Client
     client = genai.Client(api_key=os.environ.get("GEMINI_API_KEY"))
     
     # 2. Retrieve History
-    history = get_chat_history(username, subject)
+    history = session.get("messages", [])
     print("HISTORY LEN: ", len(history))
 
     # 3. Adapt History to New SDK 'Content' Types
-    # The new SDK expects a list of types.Content objects
     sdk_contents = []
-    print("HISTORY: ", history)
+    
     for msg in history:
-        # Create a Part object (handles text/images/etc)
-        # Assuming msg["parts"] is a string (text)
-        part = types.Part.from_text(text=msg["parts"][0])
+        # Handle different parts structures just in case
+        text_content = ""
+        parts_data = msg.get("parts", [])
+        if isinstance(parts_data, list) and len(parts_data) > 0:
+             text_content = parts_data[0] if isinstance(parts_data[0], str) else str(parts_data[0])
+        elif isinstance(parts_data, str):
+             text_content = parts_data
         
-        # Create Content object
-        content = types.Content(role=msg["role"], parts=[part])
-        sdk_contents.append(content)
+        if text_content: # Only add if there is content
+            part = types.Part.from_text(text=text_content)
+            content = types.Content(role=msg["role"], parts=[part])
+            sdk_contents.append(content)
 
-    # 4. Add the NEW Prompt to the content list
-    # (In the new stateless approach, we send History + New Prompt together)
-    print("SDK CONTENTS: ", sdk_contents)
+    # 4. Add the NEW Prompt
     sdk_contents.append(
         types.Content(
             role="user", 
@@ -83,16 +153,13 @@ async def generate_response(username: str, prompt: str, subject: str = "general"
 
     config = types.GenerateContentConfig(
         system_instruction=[types.Part.from_text(text=system_text)],
-        temperature=0.7, # Optional: Adjust creativity
-        max_output_tokens=1000 # Optional: Safety limit
+        temperature=0.7, 
+        max_output_tokens=1000
     )
 
-    print("MODEL: gemini-flash-lite-latest") # Or "gemini-flash-lite-latest"
+    print(f"MODEL: gemini-flash-lite-latest (Session {session_id})") 
     
     try:
-        # 6. Generate Content
-        # We use 'generate_content' for a single response (blocking), 
-        # or 'generate_content_stream' if you want to stream chunks.
         response = client.models.generate_content(
             model="gemini-flash-lite-latest", 
             contents=sdk_contents,
@@ -101,9 +168,9 @@ async def generate_response(username: str, prompt: str, subject: str = "general"
         
         print("RESPONSE: ", response.text)
 
-        # 7. Save to Database
-        save_message(username, "user", prompt, subject, author=role)
-        save_message(username, "model", response.text, subject)
+        # 7. Save to Database (Session)
+        save_message_to_session(session_id, "user", prompt, author=role)
+        save_message_to_session(session_id, "model", response.text)
         
         return response.text
 
@@ -118,26 +185,36 @@ from google import genai
 from google.genai import types
 import os
 
-async def analyze_performance(username: str, subject: str = "general") -> str:
-    history = get_chat_history(username, subject)
+async def analyze_performance(session_id: str) -> str:
+    history = get_session_history(session_id)
     if not history:
-        return "No chat history found for this subject."
+        return "No chat history found for this session."
     
-    # 1. Prepare transcript string (same logic as before)
+    db = get_mongo_db()
+    try:
+        oid = ObjectId(session_id)
+        session = db.chat_sessions.find_one({"_id": oid})
+        title = session.get("title", "Unknown Session")
+    except:
+        title = "Unknown Session"
+    
+    # 1. Prepare transcript string
     transcript = ""
     for msg in history:
         role = msg["role"]
-        # Handle cases where 'parts' might be a list or a string in your DB
-        content = msg["parts"]
-        if isinstance(content, list) and len(content) > 0:
-             # Assuming list of dicts like [{'text': '...'}] or list of strings
-            content = content[0].get('text', str(content[0])) if isinstance(content[0], dict) else str(content[0])
+        # Robust content extraction
+        text_content = ""
+        parts_data = msg.get("parts", [])
+        if isinstance(parts_data, list) and len(parts_data) > 0:
+             text_content = parts_data[0] if isinstance(parts_data[0], str) else str(parts_data[0])
+        elif isinstance(parts_data, str):
+             text_content = parts_data
             
-        transcript += f"{role.upper()}: {content}\n"
+        transcript += f"{role.upper()}: {text_content}\n"
     
     # 2. Construct the Analysis Prompt
     analysis_prompt = f"""
-    Analyze the following chat transcript between a student and an AI tutor on the subject '{subject}'.
+    Analyze the following chat transcript between a student and an AI tutor for the session '{title}'.
     Provide a detailed performance report including:
     1. Strengths
     2. Weaknesses / Learning Gaps
@@ -162,70 +239,11 @@ async def analyze_performance(username: str, subject: str = "general") -> str:
                 )
             ],
             config=types.GenerateContentConfig(
-                temperature=0.5, # Lower temp for more analytical/consistent results
+                temperature=0.5, 
             )
         )
         return response.text
 
     except Exception as e:
         print(f"Error analyzing performance: {e}")
-        return "Unable to generate performance report at this time."
-# async def generate_response(username: str, prompt: str, subject: str = "general", role: str = "student"):
-#     print("IN_GENERATE")
-#     history = get_chat_history(username, subject)
-#     print("HISTORY: ", history)
-#     # Prepare history for Gemini (strip extra fields)
-#     gemini_history = []
-#     for msg in history:
-#         # Simple adaptation to Gemini format
-#         parts = msg["parts"]
-#         gemini_history.append({"role": msg["role"], "parts": [{"text":parts}]})
-    
-#     system_instruction = STUDENT_SYSTEM_PROMPT if role == "student" else TEACHER_SYSTEM_PROMPT
-#     print("SYSTEM: ", system_instruction)
-#     model = genai.GenerativeModel('gemini-2.0-flash-lite', system_instruction=system_instruction)
-#     print("MODEL: ", model)
-#     chat = model.start_chat(history=gemini_history)
-#     print("CHAT: ", chat)
-#     print("PROMPT: ", prompt)
-#     try:
-#         response = chat.send_message(prompt)
-#     except Exception as e:
-#         print("ERROR: ", e)
-#         raise HTTPException(status_code=500, detail=str(e))
-#     print("RESPONSE: ", response)
-    
-#     # Save User message
-#     save_message(username, "user", prompt, subject, author=role)
-#     # Save Model response
-#     save_message(username, "model", response.text, subject)
-    
-#     return response.text
-
-# async def analyze_performance(username: str, subject: str = "general") -> str:
-#     history = get_chat_history(username, subject)
-#     if not history:
-#         return "No chat history found for this subject."
-    
-#     # Prepare transcript for Gemini
-#     transcript = ""
-#     for msg in history:
-#         role = msg["role"]
-#         content = msg["parts"][0] if isinstance(msg["parts"], list) else msg["parts"]
-#         transcript += f"{role.upper()}: {content}\n"
-    
-#     prompt = f"""
-#     Analyze the following chat transcript between a student and an AI tutor on the subject '{subject}'.
-#     Provide a detailed performance report including:
-#     1. Strengths
-#     2. Weaknesses / Learning Gaps
-#     3. Recommended Next Steps
-#     4. Overall Proficiency Level
-
-#     Transcript:
-#     {transcript}
-#     """
-    
-#     model = genai.GenerativeModel('gemini-2.0-flash')
-#     response = model.generate_content(prompt)
-#     return response.text
+        return "ERROR - Unable to generate performance report at this time."

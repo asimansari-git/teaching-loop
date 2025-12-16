@@ -52,12 +52,23 @@ class TokenData(BaseModel):
     role: Optional[str] = None
 
 class ReportCreate(BaseModel):
-    subject: str
-    content: str
     student_id: int
+    session_id: str
+    subject: Optional[str] = None # Can be inferred
+    content: Optional[str] = ""
 
 class ReportOut(ReportCreate):
     id: int
     created_at: datetime
     class Config:
         from_attributes = True
+
+class CreateSessionRequest(BaseModel):
+    subject: str
+    topics: List[str]
+
+class SessionSummary(BaseModel):
+    session_id: str
+    title: str
+    created_at: datetime
+    subject: str
