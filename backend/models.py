@@ -7,6 +7,15 @@ from .database import Base
 
 # --- SQLAlchemy Models ---
 
+class Organization(Base):
+    __tablename__ = "organizations"
+
+    id = Column(Integer, primary_key=True, index=True)
+    name = Column(String, unique=True, index=True)
+    created_at = Column(DateTime, default=datetime.utcnow)
+
+    users = relationship("User", back_populates="organization")
+
 class User(Base):
     __tablename__ = "users"
 
@@ -14,7 +23,9 @@ class User(Base):
     username = Column(String, unique=True, index=True)
     hashed_password = Column(String)
     role = Column(String) # "student" or "teacher"
+    organization_id = Column(Integer, ForeignKey("organizations.id"), nullable=True) # Check if we want nullable, for now yes
     
+    organization = relationship("Organization", back_populates="users")
     reports = relationship("Report", back_populates="student")
 
 class Report(Base):
@@ -36,10 +47,13 @@ class UserBase(BaseModel):
 class UserCreate(UserBase):
     password: str
     role: str
+    organization_id: Optional[int] = None
+    new_organization_name: Optional[str] = None # For creating new org
 
 class UserOut(UserBase):
     id: int
     role: str
+    organization_id: Optional[int] = None
     class Config:
         from_attributes = True
 
@@ -72,3 +86,8 @@ class SessionSummary(BaseModel):
     title: str
     created_at: datetime
     subject: str
+class OrganizationOut(BaseModel):
+    id: int
+    name: str
+    class Config:
+        from_attributes = True

@@ -14,14 +14,31 @@ def login_user(username, password):
         st.error(f"Connection error: {e}")
         return None
 
-def register_user(username, password, role):
+def get_organizations():
     try:
-        response = httpx.post(
-            f"{API_URL}/auth/register", 
-            json={"username": username, "password": password, "role": role}
-        )
+        response = httpx.get(f"{API_URL}/auth/organizations")
+        if response.status_code == 200:
+            return response.json()
+        return []
+    except Exception as e:
+        st.error(f"Error fetching organizations: {e}")
+        return []
+
+def register_user(username, password, role, organization_id=None, new_organization_name=None):
+    try:
+        data = {
+            "username": username, 
+            "password": password, 
+            "role": role,
+            "organization_id": organization_id,
+            "new_organization_name": new_organization_name
+        }
+        response = httpx.post(f"{API_URL}/auth/register", json=data)
         if response.status_code == 200:
             return True
+        elif response.status_code == 400:
+            st.error(response.json().get("detail", "Registration failed"))
+            return False
         return False
     except Exception as e:
         st.error(f"Connection error: {e}")

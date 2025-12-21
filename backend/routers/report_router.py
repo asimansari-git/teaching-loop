@@ -14,7 +14,11 @@ def get_students(current_user: User = Depends(auth.get_current_user), db: Sessio
     if current_user.role != "teacher":
         raise HTTPException(status_code=403, detail="Not authorized")
     
-    students = db.query(User).filter(User.role == "student").all()
+    # Filter students by the same organization as the teacher
+    students = db.query(User).filter(
+        User.role == "student",
+        User.organization_id == current_user.organization_id
+    ).all()
     return students
 
 @router.post("/generate", response_model=models.ReportOut)
@@ -27,6 +31,10 @@ async def generate_report(report_in: models.ReportCreate, current_user: User = D
     student = db.query(User).filter(User.id == report_in.student_id).first()
     if not student:
         raise HTTPException(status_code=404, detail="Student not found")
+
+    # Authorize: Teacher can only generate reports for students in their org
+    if student.organization_id != current_user.organization_id:
+        raise HTTPException(status_code=403, detail="Not authorized to access this student")
 
     print("Passed db query")
     generated_content = await chat_service.analyze_performance(report_in.session_id)
@@ -68,9 +76,15 @@ async def generate_report(report_in: models.ReportCreate, current_user: User = D
     return report_out
 
 @router.get("/sessions/{student_username}", response_model=List[models.SessionSummary])
-async def get_student_sessions(student_username: str, current_user: User = Depends(auth.get_current_user)):
+async def get_student_sessions(student_username: str, current_user: User = Depends(auth.get_current_user), db: Session = Depends(database.get_db)):
     if current_user.role != "teacher":
         raise HTTPException(status_code=403, detail="Not authorized")
+    
+    # Check if student belongs to teacher's org
+    student = db.query(User).filter(User.username == student_username).first()
+    if not student or student.organization_id != current_user.organization_id:
+        raise HTTPException(status_code=403, detail="Not authorized to access this student sessions")
+
     return chat_service.get_user_sessions(student_username)
 
 @router.get("/student/{student_id}", response_model=List[models.ReportOut])
