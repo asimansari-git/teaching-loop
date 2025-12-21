@@ -149,7 +149,17 @@ async def generate_response(session_id: str, prompt: str, role: str = "student")
     
     if role == "student":
         topics_str = ", ".join(topics) if topics else "general concepts"
-        system_text = f"{base_system_text}\n\nCurrent Subject: {subject}\nFocus Topics: {topics_str}\nEnsure all examples and explanations are relevant to the selected subject and topics."
+        
+        # Format Learning Plan if available
+        learning_plan_context = ""
+        learning_plan_data = session.get("learning_plan")
+        if learning_plan_data and "modules" in learning_plan_data:
+            learning_plan_context = "\n\nSTRUCTURED LEARNING PATH:\n"
+            for i, mod in enumerate(learning_plan_data["modules"]):
+                 learning_plan_context += f"{i+1}. {mod['title']}: {mod['description']}\n"
+            learning_plan_context += "\nFollow this learning path sequentially. Guide the student through these modules one by one."
+
+        system_text = f"{base_system_text}\n\nCurrent Subject: {subject}\nFocus Topics: {topics_str}{learning_plan_context}\nEnsure all examples and explanations are relevant to the selected subject and topics."
     else:
         system_text = base_system_text
 
@@ -249,3 +259,112 @@ async def analyze_performance(session_id: str) -> str:
     except Exception as e:
         print(f"Error analyzing performance: {e}")
         return "ERROR - Unable to generate performance report at this time."
+
+async def normalize_subject(input_name: str) -> dict:
+    client = genai.Client(api_key=os.environ.get("GEMINI_API_KEY"))
+    prompt = f"""
+    You are a subject matter expert. A user has entered the subject name: "{input_name}".
+    1. Normalize this to a standard educational subject name (e.g., "reactjs" -> "React.js", "pythn" -> "Python").
+    2. Provide a list of 5-7 core topics for this subject suitable for a learning curriculum.
+    
+    Return pure JSON with keys: "name", "topics".
+    Example: {{"name": "Python", "topics": ["Syntax", "Data Structures", "Control Flow"]}}
+    """
+    try:
+        response = client.models.generate_content(
+            model="gemini-flash-latest", # Using a smarter model for JSON structure
+            contents=[types.Content(role="user", parts=[types.Part.from_text(text=prompt)])],
+            config=types.GenerateContentConfig(response_mime_type="application/json")
+        )
+        import json
+        return json.loads(response.text)
+    except Exception as e:
+        print(f"Error normalizing subject: {e}")
+        return {"name": input_name, "topics": ["General"]}
+
+async def generate_learning_plan_from_llm(subject: str, topics: list) -> dict:
+    client = genai.Client(api_key=os.environ.get("GEMINI_API_KEY"))
+    prompt = f"""
+    Create a structured learning plan for the subject: {subject}.
+    Focus on these topics: {', '.join(topics)}.
+    
+    Return a JSON object where the key "modules" is a list of objects.
+    Each object should have:
+    - "title": Module title
+    - "description": Brief description
+    - "topics": List of sub-topics covered
+    
+    Example JSON:
+    {{
+        "modules": [
+            {{"title": "Intro", "description": "...", "topics": ["A", "B"]}}
+        ]
+    }}
+    """
+    try:
+        response = client.models.generate_content(
+            model="gemini-flash-latest",
+            contents=[types.Content(role="user", parts=[types.Part.from_text(text=prompt)])],
+            config=types.GenerateContentConfig(response_mime_type="application/json")
+        )
+        import json
+        return json.loads(response.text)
+    except Exception as e:
+        print(f"Error generating plan: {e}")
+    except Exception as e:
+        print(f"Error generating plan: {e}")
+        return {"modules": []}
+
+async def generate_quiz_from_llm(subject: str, difficulty: str, context: str = "") -> dict:
+    client = genai.Client(api_key=os.environ.get("GEMINI_API_KEY"))
+    prompt = f"""
+    Create a {difficulty} level quiz for {subject}.
+    Context: {context} (If any).
+
+    Return a JSON object with:
+    "questions": List of objects:
+        - "id": int
+        - "text": question text
+        - "options": list of 4 options
+        - "correct_option_index": int (0-3)
+
+    Example:
+    {{
+        "questions": [
+           {{"id": 1, "text": "Q1", "options": ["A","B","C","D"], "correct_option_index": 0}}
+        ]
+    }}
+    """
+    try:
+        response = client.models.generate_content(
+            model="gemini-flash-latest",
+            contents=[types.Content(role="user", parts=[types.Part.from_text(text=prompt)])],
+            config=types.GenerateContentConfig(response_mime_type="application/json")
+        )
+        import json
+        return json.loads(response.text)
+    except Exception as e:
+        print(f"Error generating quiz: {e}")
+        return {"questions": []}
+
+async def evaluate_quiz_from_llm(quiz_data: dict, user_answers: dict) -> dict:
+    # Basic grading can be done locally if we have correct answers in the quiz data.
+    # LLM can be used for "Evaluation" and "Next Step" recommendation.
+    
+    score = 0
+    total = len(quiz_data["questions"])
+    
+    for q in quiz_data["questions"]:
+        qid = str(q["id"])
+        if qid in user_answers and user_answers[qid] == q["correct_option_index"]:
+            score += 1
+            
+    percentage = (score / total) * 100 if total > 0 else 0
+    passed = percentage >= 70
+    
+    return {
+        "score": score,
+        "total": total,
+        "percentage": percentage,
+        "passed": passed
+    }

@@ -1,4 +1,4 @@
-from sqlalchemy import Column, Integer, String, Text, ForeignKey, DateTime
+from sqlalchemy import Column, Integer, String, Text, ForeignKey, DateTime, Boolean, JSON, Float
 from sqlalchemy.orm import relationship
 from datetime import datetime
 from pydantic import BaseModel
@@ -27,6 +27,33 @@ class User(Base):
     
     organization = relationship("Organization", back_populates="users")
     reports = relationship("Report", back_populates="student")
+
+class Subject(Base):
+    __tablename__ = "subjects"
+
+    id = Column(Integer, primary_key=True, index=True)
+    name = Column(String, unique=True, index=True)
+    topics = Column(JSON) # List of strings
+
+class LearningPlan(Base):
+    __tablename__ = "learning_plans"
+
+    id = Column(Integer, primary_key=True, index=True)
+    session_id = Column(String, index=True) # MongoDB Session ID
+    plan_content = Column(JSON) # Structured curriculum
+    status = Column(String, default="active") # active, completed
+    created_at = Column(DateTime, default=datetime.utcnow)
+
+class Quiz(Base):
+    __tablename__ = "quizzes"
+
+    id = Column(Integer, primary_key=True, index=True)
+    session_id = Column(String, index=True)
+    difficulty = Column(String) # easy, mid, hard
+    questions = Column(JSON)
+    score = Column(Float, nullable=True)
+    passed = Column(Boolean, default=False)
+    created_at = Column(DateTime, default=datetime.utcnow)
 
 class Report(Base):
     __tablename__ = "reports"
@@ -91,3 +118,21 @@ class OrganizationOut(BaseModel):
     name: str
     class Config:
         from_attributes = True
+
+class SubjectBase(BaseModel):
+    name: str
+    topics: List[str]
+
+class SubjectOut(SubjectBase):
+    id: int
+    class Config:
+        from_attributes = True
+
+class LearningPlanCreate(BaseModel):
+    session_id: str
+    plan_content: dict
+
+class QuizCreate(BaseModel):
+    session_id: str
+    difficulty: str
+    questions: dict
