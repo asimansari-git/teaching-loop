@@ -97,10 +97,64 @@ if "active_session_id" not in st.session_state or st.session_state["active_sessi
                     st.error("Failed to start session.")
 
 else:
-    # --- Active Chat View ---
+    # --- Active Chat View ---    
     session_id = st.session_state["active_session_id"]
+    # Fetch history and learning plan
+    session_data = get_session_history_by_id(session_id, st.session_state["token"])
     
-    session_id = st.session_state["active_session_id"]
+    history = []
+    if isinstance(session_data, dict):
+        history = session_data.get("messages", [])
+        learning_plan = session_data.get("learning_plan")
+        selected_subject = session_data.get("subject")
+        if learning_plan:
+            st.session_state["learning_plan"] = learning_plan
+    elif isinstance(session_data, list): # Fallback for backward compatibility
+        history = session_data
+    
+    if not st.session_state.get("quiz_mode"):
+        # Standard Chat View
+        # Display Chat
+        for message in history:
+            role = message["role"]
+            # Handle various part structures
+            parts = message.get("parts", [])
+            if isinstance(parts, list) and parts:
+                 content = parts[0]
+            elif isinstance(parts, str):
+                 content = parts
+            else:
+                content = ""
+            # Filter out teacher instructions (Intervention)
+            author = message.get("author")
+            if author == "teacher":
+                continue
+
+            if role == "user":
+                with st.chat_message("user"):
+                    st.markdown(content)
+            else:
+                with st.chat_message("assistant"):
+                    st.markdown(content)
+    
+        # Input
+        if prompt := st.chat_input("Ask me anything..."):
+            with st.chat_message("user"):
+                st.markdown(prompt)
+                
+            with st.spinner("Thinking..."):
+                response_text = send_chat_message(prompt, session_id, st.session_state["token"])
+                
+            if response_text:
+                with st.chat_message("assistant"):
+                    st.markdown(response_text)
+                # Rerun to update history view properly? Or just append? 
+                # Appending is faster but history fetch ensures consistency.
+                # Let's rely on st.rerun() to refresh the full history for simplicity and consistency
+                st.rerun()
+            else:
+                st.error("Failed to get response.")
+
     
     # Layout: Sidebar for Learning Path, Main for Chat
     with st.sidebar:
@@ -116,6 +170,9 @@ else:
             for idx, mod in enumerate(modules):
                  st.write(f"**{idx+1}. {mod['title']}**")
                  st.caption(mod['description'])
+                 mod_topics = ", ".join(mod.get("topics", []))
+                 if mod_topics:
+                     st.caption(f"_{mod_topics}_")
         
         st.markdown("---")
         if st.button("Take Quiz"):
@@ -179,48 +236,4 @@ else:
                     del st.session_state["quiz_result"] # Keep quiz to retry? or reset?
                     del st.session_state["current_quiz"]
                     st.rerun()
-                    
-    else:
-        # Standard Chat View
-        history = get_session_history_by_id(session_id, st.session_state["token"])
     
-    # Display Chat
-    for message in history:
-        role = message["role"]
-        # Handle various part structures
-        parts = message.get("parts", [])
-        if isinstance(parts, list) and parts:
-             content = parts[0]
-        elif isinstance(parts, str):
-             content = parts
-        else:
-             content = ""
-        # Filter out teacher instructions (Intervention)
-        author = message.get("author")
-        if author == "teacher":
-            continue
-
-        if role == "user":
-            with st.chat_message("user"):
-                st.markdown(content)
-        else:
-            with st.chat_message("assistant"):
-                st.markdown(content)
-    
-    # Input
-    if prompt := st.chat_input("Ask me anything..."):
-        with st.chat_message("user"):
-            st.markdown(prompt)
-            
-        with st.spinner("Thinking..."):
-            response_text = send_chat_message(prompt, session_id, st.session_state["token"])
-            
-        if response_text:
-            with st.chat_message("assistant"):
-                st.markdown(response_text)
-            # Rerun to update history view properly? Or just append? 
-            # Appending is faster but history fetch ensures consistency.
-            # Let's rely on st.rerun() to refresh the full history for simplicity and consistency
-            st.rerun()
-        else:
-            st.error("Failed to get response.")

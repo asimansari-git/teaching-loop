@@ -92,8 +92,9 @@ async def generate_quiz(request: models.QuizCreate):
     from bson import ObjectId
     session = db.chat_sessions.find_one({"_id": ObjectId(request.session_id)})
     subject = session.get("subject", "General") if session else "General"
+    learning_plan = session.get("learning_plan", {})
     
-    quiz_data = await chat_service.generate_quiz_from_llm(subject, request.difficulty)
+    quiz_data = await chat_service.generate_quiz_from_llm(subject, request.difficulty, learning_plan)
     return quiz_data
 
 @router.post("/quiz/submit")

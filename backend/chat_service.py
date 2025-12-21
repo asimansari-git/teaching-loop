@@ -59,8 +59,12 @@ def get_session_history(session_id: str):
     
     session = db.chat_sessions.find_one({"_id": oid})
     if session:
-        return session.get("messages", [])
-    return []
+        return {
+            "messages": session.get("messages", []),
+            "learning_plan": session.get("learning_plan", {}),
+            "subject": session.get("subject", "General")
+        }
+    return {"messages": [], "learning_plan": {}}
 
 def save_message_to_session(session_id: str, role: str, content: str, author: str = None):
     db = get_mongo_db()
@@ -156,7 +160,8 @@ async def generate_response(session_id: str, prompt: str, role: str = "student")
         if learning_plan_data and "modules" in learning_plan_data:
             learning_plan_context = "\n\nSTRUCTURED LEARNING PATH:\n"
             for i, mod in enumerate(learning_plan_data["modules"]):
-                 learning_plan_context += f"{i+1}. {mod['title']}: {mod['description']}\n"
+                 mod_topics = ", ".join(mod.get("topics", []))
+                 learning_plan_context += f"{i+1}. {mod['title']}: {mod['description']} (Topics: {mod_topics})\n"
             learning_plan_context += "\nFollow this learning path sequentially. Guide the student through these modules one by one."
 
         system_text = f"{base_system_text}\n\nCurrent Subject: {subject}\nFocus Topics: {topics_str}{learning_plan_context}\nEnsure all examples and explanations are relevant to the selected subject and topics."
@@ -198,7 +203,8 @@ from google.genai import types
 import os
 
 async def analyze_performance(session_id: str) -> str:
-    history = get_session_history(session_id)
+    session_data = get_session_history(session_id)
+    history = session_data.get("messages", [])
     if not history:
         return "No chat history found for this session."
     
