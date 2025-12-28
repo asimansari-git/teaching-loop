@@ -7,7 +7,8 @@ from streamlit.components.v1 import html
 sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), '..')))
 from utils import (
     send_chat_message, create_chat_session, get_chat_sessions, get_session_history_by_id,
-    validate_subject, create_learning_plan, generate_quiz, submit_quiz
+    validate_subject, create_learning_plan, generate_quiz, submit_quiz, get_subjects,
+    get_certificate
 )
 
 st.set_page_config(page_title="Student Dashboard", page_icon="🧑‍🎓")
@@ -35,12 +36,9 @@ for s in sessions:
 
 # --- Main Area ---
 
-SUBJECTS = {
-    "C#": ["Syntax", "OOP", "Async/Await", "LINQ", "Delegates & Events"],
-    "SQL Server": ["T-SQL", "Indexing", "Stored Procedures", "Joins", "Transactions"],
-    ".NET": ["CLR", "Garbage Collection", "ASP.NET Core", "Entity Framework", "Dependency Injection"],
-    "General": ["General"]
-}
+# --- Main Area ---
+
+# Removed hardcoded SUBJECTS
 
 if "active_session_id" not in st.session_state or st.session_state["active_session_id"] is None:
     # --- Start New Session View ---
@@ -52,11 +50,20 @@ if "active_session_id" not in st.session_state or st.session_state["active_sessi
     selected_subject = ""
     selected_topics = []
     
+    # Fetch Subjects from DB
+    db_subjects_list = get_subjects(st.session_state["token"])
+    # Convert to dict for easier lookup: {name: topics}
+    db_subjects = {s["name"]: s["topics"] for s in db_subjects_list}
+
     if subject_source == "Preset":
-        selected_subject = st.selectbox("Select Subject", list(SUBJECTS.keys()))
-        if selected_subject:
-             available_topics = SUBJECTS.get(selected_subject, [])
-             selected_topics = st.multiselect("Select Topics", available_topics, default=available_topics[:3])
+        if not db_subjects:
+            st.warning("No subjects found in database. Try adding a Custom subject.")
+        
+        selected_subject_name = st.selectbox("Select Subject", list(db_subjects.keys()))
+        if selected_subject_name:
+             selected_subject = selected_subject_name
+             available_topics = db_subjects.get(selected_subject, [])
+             selected_topics = st.multiselect("Select Topics", available_topics, default=available_topics[:3] if available_topics else [])
              
     else:
         custom_input = st.text_input("Enter Subject Name (e.g., 'ReactJS', 'Physics')")
@@ -178,6 +185,10 @@ else:
         if st.button("Take Quiz"):
             st.session_state["quiz_mode"] = True
             st.rerun()
+        if st.session_state.get("quiz_mode"):
+            if st.button("Back to Chat"):
+                st.session_state["quiz_mode"] = False
+                st.rerun()
             
     if st.session_state.get("quiz_mode"):
         st.subheader("📝 Adaptive Quiz")
@@ -227,7 +238,10 @@ else:
                 else: 
                      st.balloons()
                      st.success("You are an Expert! 🏆")
-                     st.download_button("Download Certificate", f"Certificate: Expert in {selected_subject}", file_name="certificate.txt")
+                     if st.button("Generate Certificate"):
+                         cert_text = get_certificate(session_id, selected_subject or "Adaptive Course", st.session_state["token"])
+                         if cert_text:
+                             st.download_button("Download Certificate", cert_text, file_name=f"Certificate_{session_id}.md")
                      
             else:
                 st.error("Not quite there. Review the material and try again.")

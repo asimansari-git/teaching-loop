@@ -164,8 +164,16 @@ def get_student_reports(student_id, token):
     except Exception as e:
         st.error(f"Error fetching reports: {e}")
         return []
+
+def get_subjects(token):
+    headers = {"Authorization": f"Bearer {token}"}
+    try:
+        response = httpx.get(f"{API_URL}/chat/subjects", headers=headers)
+        if response.status_code == 200:
+            return response.json()
+        return []
     except Exception as e:
-        st.error(f"Error fetching reports: {e}")
+        st.error(f"Error fetching subjects: {e}")
         return []
 
 def validate_subject(subject_name, token):
@@ -206,7 +214,7 @@ def generate_quiz(session_id, difficulty, token):
             f"{API_URL}/chat/quiz/generate",
             json={"session_id": session_id, "difficulty": difficulty, "questions": {}},
             headers=headers,
-            timeout=30.0
+            timeout=60.0
         )
         if response.status_code == 200:
             return response.json()
@@ -228,4 +236,23 @@ def submit_quiz(quiz_data, user_answers, token):
         return None
     except Exception as e:
         st.error(f"Error submitting quiz: {e}")
+        return None
+
+def get_certificate(session_id, subject, token):
+    headers = {"Authorization": f"Bearer {token}"}
+    try:
+        response = httpx.post(
+            f"{API_URL}/reports/certificate",
+            json={"session_id": session_id, "subject": subject, "student_id": 0, "content": ""}, # student_id/content ignored
+            headers=headers,
+            timeout=60.0
+        )
+        if response.status_code == 200:
+            return response.json().get("content")
+        elif response.status_code == 400:
+            st.warning(response.json().get("detail"))
+            return None
+        return None
+    except Exception as e:
+        st.error(f"Error getting certificate: {e}")
         return None

@@ -49,7 +49,7 @@ with tab3:
             # Display Chat (Container for scroll)
             chat_container = st.container(height=400)
             with chat_container:
-                for message in history_int:
+                for message in history_int["messages"]:
                     role = message["role"]
                     author = message.get("author")
                     

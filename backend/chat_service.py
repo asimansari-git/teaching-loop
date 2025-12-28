@@ -202,7 +202,7 @@ from google import genai
 from google.genai import types
 import os
 
-async def analyze_performance(session_id: str) -> str:
+async def analyze_performance(session_id: str, extra_context: str = "") -> str:
     session_data = get_session_history(session_id)
     history = session_data.get("messages", [])
     if not history:
@@ -213,8 +213,10 @@ async def analyze_performance(session_id: str) -> str:
         oid = ObjectId(session_id)
         session = db.chat_sessions.find_one({"_id": oid})
         title = session.get("title", "Unknown Session")
+        learning_plan = session.get("learning_plan", {})
     except:
         title = "Unknown Session"
+        learning_plan = {}
     
     # 1. Prepare transcript string
     transcript = ""
@@ -231,13 +233,23 @@ async def analyze_performance(session_id: str) -> str:
         transcript += f"{role.upper()}: {text_content}\n"
     
     # 2. Construct the Analysis Prompt
+    learning_plan_info = ""
+    if learning_plan:
+        learning_plan_info = f"Learning Plan Status: {learning_plan.get('status', 'Active')}\nModules: {len(learning_plan.get('modules', []))}\n"
+
     analysis_prompt = f"""
     Analyze the following chat transcript between a student and an AI tutor for the session '{title}'.
+    
+    Context Information:
+    {learning_plan_info}
+    {extra_context}
+
     Provide a detailed performance report including:
     1. Strengths
     2. Weaknesses / Learning Gaps
-    3. Recommended Next Steps
-    4. Overall Proficiency Level
+    3. Quiz Performance Analysis (if available)
+    4. Recommended Next Steps
+    5. Overall Proficiency Level
 
     Transcript:
     {transcript}
@@ -374,3 +386,28 @@ async def evaluate_quiz_from_llm(quiz_data: dict, user_answers: dict) -> dict:
         "percentage": percentage,
         "passed": passed
     }
+
+async def generate_certificate_content(student_name: str, subject: str, date_str: str, quiz_summary: str) -> str:
+    client = genai.Client(api_key=os.environ.get("GEMINI_API_KEY"))
+    prompt = f"""
+    Generate a formal certificate of completion for:
+    Student: {student_name}
+    Subject: {subject}
+    Date: {date_str}
+    
+    Achievements:
+    {quiz_summary}
+    
+    The output should be formatted as a beautiful Markdown certificate. 
+    Use headers, bold text, and separator lines to make it look professional.
+    Include a congratulatory message and a "Verified by AI Tutor" footer.
+    """
+    try:
+        response = client.models.generate_content(
+            model="gemini-flash-latest",
+            contents=[types.Content(role="user", parts=[types.Part.from_text(text=prompt)])]
+        )
+        return response.text
+    except Exception as e:
+        print(f"Error generating certificate: {e}")
+        return "Certificate Generation Failed."
