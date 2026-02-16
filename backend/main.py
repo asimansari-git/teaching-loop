@@ -1,6 +1,6 @@
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
-from .routers import auth_router, chat_router, report_router
+from .routers import auth_router, chat_router, report_router, content_router
 from .database import engine, Base
 
 # Create tables
@@ -20,6 +20,7 @@ app.add_middleware(
 app.include_router(auth_router.router)
 app.include_router(chat_router.router)
 app.include_router(report_router.router)
+app.include_router(content_router.router)
 
 @app.get("/")
 def read_root():

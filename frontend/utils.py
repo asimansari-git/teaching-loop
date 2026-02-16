@@ -256,3 +256,45 @@ def get_certificate(session_id, subject, token):
     except Exception as e:
         st.error(f"Error getting certificate: {e}")
         return None
+
+def upload_content(file, token):
+    headers = {"Authorization": f"Bearer {token}"}
+    files = {"file": (file.name, file, file.type)}
+    try:
+        response = httpx.post(f"{API_URL}/content/upload", files=files, headers=headers, timeout=120.0) # Chunking might take time
+        if response.status_code == 200:
+            return response.json()
+        st.error(f"Upload failed: {response.text}")
+        return None
+    except Exception as e:
+        st.error(f"Error uploading content: {e}")
+        return None
+
+def get_pending_content(token):
+    headers = {"Authorization": f"Bearer {token}"}
+    try:
+        response = httpx.get(f"{API_URL}/content/pending", headers=headers)
+        if response.status_code == 200:
+            return response.json()
+        return []
+    except Exception as e:
+        st.error(f"Error fetching pending content: {e}")
+        return []
+
+def update_chunk(chunk_id, updates, token):
+    headers = {"Authorization": f"Bearer {token}"}
+    try:
+        response = httpx.post(f"{API_URL}/content/chunk/{chunk_id}", json=updates, headers=headers)
+        return response.status_code == 200
+    except Exception as e:
+        st.error(f"Error updating chunk: {e}")
+        return False
+
+def verify_item(item_id, token):
+    headers = {"Authorization": f"Bearer {token}"}
+    try:
+        response = httpx.post(f"{API_URL}/content/verify/{item_id}", headers=headers)
+        return response.status_code == 200
+    except Exception as e:
+        st.error(f"Error verifying item: {e}")
+        return False

@@ -66,6 +66,30 @@ class Report(Base):
 
     student = relationship("User", back_populates="reports")
 
+class ContentItem(Base):
+    __tablename__ = "content_items"
+
+    id = Column(Integer, primary_key=True, index=True)
+    filename = Column(String)
+    content_type = Column(String)
+    status = Column(String, default="processed") # processed, verified
+    teacher_id = Column(Integer, ForeignKey("users.id"))
+    created_at = Column(DateTime, default=datetime.utcnow)
+    
+    chunks = relationship("ContentChunk", back_populates="item")
+
+class ContentChunk(Base):
+    __tablename__ = "content_chunks"
+
+    id = Column(Integer, primary_key=True, index=True)
+    content_item_id = Column(Integer, ForeignKey("content_items.id"))
+    text = Column(String)
+    topics = Column(JSON) # List of extracted topics
+    status = Column(String, default="pending") # pending, approved, rejected
+    index_id = Column(String, nullable=True) # Chroma ID
+    
+    item = relationship("ContentItem", back_populates="chunks")
+
 # --- Pydantic Schemas ---
 
 class UserBase(BaseModel):
@@ -101,6 +125,19 @@ class ReportCreate(BaseModel):
 class ReportOut(ReportCreate):
     id: int
     created_at: datetime
+    
+class ContentChunkOut(BaseModel):
+    id: int
+    text: str
+    topics: list
+    status: str
+    
+class ContentItemOut(BaseModel):
+    id: int
+    filename: str
+    status: str
+    created_at: datetime
+    chunks: List[ContentChunkOut] = []
     class Config:
         from_attributes = True
 

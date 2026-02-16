@@ -5,7 +5,11 @@ import pandas as pd
 
 # Add parent directory to path to import utils
 sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), '..')))
-from utils import get_students, generate_report, get_student_reports, get_student_sessions_for_teacher, get_session_history_by_id, send_chat_message
+from utils import (
+    get_students, generate_report, get_student_reports, get_student_sessions_for_teacher, 
+    get_session_history_by_id, send_chat_message, upload_content, get_pending_content, 
+    update_chunk, verify_item
+)
 
 st.set_page_config(page_title="Teacher Dashboard", page_icon="🧑‍🏫")
 
@@ -15,7 +19,7 @@ if "token" not in st.session_state or st.session_state.get("role") != "teacher":
 
 st.title(f"Teacher Dashboard - {st.session_state['username']}")
 
-tab1, tab2, tab3 = st.tabs(["Student List", "Reports", "Intervention"])
+tab1, tab2, tab3, tab4 = st.tabs(["Student List", "Reports", "Intervention", "Content Management"])
 
 students = get_students(st.session_state["token"])
 
@@ -143,3 +147,62 @@ with tab2:
                 st.info("Student has no chat sessions.")
     else:
         st.warning("No students available to generate reports for.")
+
+with tab4:
+    st.subheader("Content Management (RAG)")
+    
+    # Upload Section
+    st.markdown("### Upload New Material")
+    uploaded_file = st.file_uploader("Upload PDF or Text file", type=["pdf", "txt", "md"])
+    if uploaded_file:
+        if st.button("Process & Upload"):
+            with st.spinner("Processing content with AI (this may take a moment)..."):
+                result = upload_content(uploaded_file, st.session_state["token"])
+                if result:
+                    st.success(f"Uploaded! Created {result.get('chunks_count')} chunks.")
+                    st.rerun()
+    
+    st.divider()
+    
+    # Verification Section
+    st.markdown("### Pending Verification")
+    pending_items = get_pending_content(st.session_state["token"])
+    
+    if pending_items:
+        for item in pending_items:
+            with st.expander(f"{item['filename']} ({len(item['chunks'])} chunks) - {item['created_at']}"):
+                
+                # Check status
+                if item["status"] == "verified":
+                    st.success("This item is verified and indexed.")
+                    continue
+
+                for chunk in item["chunks"]:
+                    st.markdown(f"**Chunk {chunk['id']}**")
+                    
+                    # Editable Text
+                    new_text = st.text_area("Content", chunk["text"], height=150, key=f"text_{chunk['id']}")
+                    
+                    # Editable Topics
+                    # Convert list to string for editing
+                    topics_str = ", ".join(chunk["topics"])
+                    new_topics_str = st.text_input("Topics (comma separated)", topics_str, key=f"topics_{chunk['id']}")
+                    new_topics = [t.strip() for t in new_topics_str.split(",") if t.strip()]
+                    
+                    # Save Changes Button (Per chunk? Or Bulk? Let's do per chunk for simplicity now)
+                    if st.button("Update Chunk", key=f"update_{chunk['id']}"):
+                        if update_chunk(chunk["id"], {"text": new_text, "topics": new_topics}, st.session_state["token"]):
+                            st.success("Chunk updated!")
+                            # Ideally rerun to refresh state, but might close expander. 
+                            # Let's verify if state persists.
+                        
+                    st.divider()
+                
+                # Verify Whole Item
+                if st.button("Verify & Index", key=f"verify_{item['id']}"):
+                     with st.spinner("Indexing content into Vector DB..."):
+                         if verify_item(item["id"], st.session_state["token"]):
+                             st.success("Item verified and indexed successfully!")
+                             st.rerun()
+    else:
+        st.info("No content pending verification.")

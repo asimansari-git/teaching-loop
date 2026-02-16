@@ -1,5 +1,6 @@
 from .database import get_mongo_db
-from . import models
+from . import models, content_service
+import os
 import os
 from datetime import datetime
 from bson import ObjectId
@@ -164,7 +165,24 @@ async def generate_response(session_id: str, prompt: str, role: str = "student")
                  learning_plan_context += f"{i+1}. {mod['title']}: {mod['description']} (Topics: {mod_topics})\n"
             learning_plan_context += "\nFollow this learning path sequentially. Guide the student through these modules one by one."
 
-        system_text = f"{base_system_text}\n\nCurrent Subject: {subject}\nFocus Topics: {topics_str}{learning_plan_context}\nEnsure all examples and explanations are relevant to the selected subject and topics."
+            learning_plan_context += "\nFollow this learning path sequentially. Guide the student through these modules one by one."
+
+        # RAG Retrieval
+        rag_context = ""
+        try:
+            # Query using user prompt + subject
+            query_text = f"{subject} {topics_str}"
+            retrieved_chunks = await content_service.query_content(query_text, filter={"topics": topics_str})
+            if retrieved_chunks:
+                rag_context = "\n\nRELEVANT TEACHING MATERIAL (Verified):\n"
+                for i, chunk in enumerate(retrieved_chunks):
+                    rag_context += f"--- Material {i+1} ---\n{chunk}\n"
+                rag_context += "\nUse the above verified material to answer the student's questions accurately. Prioritize this material over general knowledge."
+            print("RAG Context: ", rag_context)
+        except Exception as e:
+            print(f"RAG Error: {e}")
+
+        system_text = f"{base_system_text}\n\nCurrent Subject: {subject}\nFocus Topics: {topics_str}{learning_plan_context}{rag_context}\nEnsure all examples and explanations are relevant to the selected subject and topics."
     else:
         system_text = base_system_text
 
@@ -183,7 +201,7 @@ async def generate_response(session_id: str, prompt: str, role: str = "student")
             config=config
         )
         
-        print("RESPONSE: ", response.text)
+        print("RESPONSE: ", response.text[:20])
 
         # 7. Save to Database (Session)
         save_message_to_session(session_id, "user", prompt, author=role)
