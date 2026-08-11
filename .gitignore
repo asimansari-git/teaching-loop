@@ -1,3 +1,7 @@
 .env
 .idea/
 chat_history.json
+backend/__pycache__/
+backend/routers/__pycache__
+.venv
+frontend/__pycache__/

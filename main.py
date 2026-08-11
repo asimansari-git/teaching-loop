@@ -16,7 +16,7 @@ if not api_key:
 genai.configure(api_key=api_key)
 
 # Define the path for the chat history file
-CHAT_HISTORY_FILE = "chat_history.json"
+CHAT_HISTORY_FILE = "bhargav2.json"
 
 # --- Helper Functions ---
 def scroll_to_bottom():
@@ -76,8 +76,8 @@ def get_model_history(history):
     return model_history
 
 # --- Streamlit App ---
-st.set_page_config(page_title="Chat with Gemini", page_icon=":robot_face:")
-st.title("Chat with Gemini")
+st.set_page_config(page_title="Student Interface", page_icon=":robot_face:")
+st.title("Learn With Chat")
 
 with st.sidebar:
     st.header("Controls")
