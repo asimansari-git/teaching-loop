@@ -1,7 +1,9 @@
 .env
+__pycache__/
+*.db
+*.sqlite3
+*.json
+chroma_db/
 .idea/
-chat_history.json
-backend/__pycache__/
-backend/routers/__pycache__
-.venv
-frontend/__pycache__/
+*.bin
+*.pkl
