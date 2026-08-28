@@ -4,7 +4,7 @@ import os
 
 # Add parent directory to path to import utils
 sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), '..')))
-from utils import login_user, register_user, get_organizations
+from utils import login_user, register_user, get_organizations, decode_jwt_payload
 
 st.set_page_config(page_title="Student Login", page_icon="🧑‍🎓")
 
@@ -21,11 +21,18 @@ with tab1:
         if submit:
             token_data = login_user(username, password)
             if token_data:
-                st.session_state["token"] = token_data["access_token"]
-                st.session_state["role"] = "student"
-                st.session_state["username"] = username
-                st.success("Logged in successfully!")
-                st.switch_page("pages/03_Student_Dashboard.py")
+                token = token_data.get("access_token")
+                payload = decode_jwt_payload(token)
+                role = payload.get("role")
+                if role != "student":
+                    st.error(f"Access Denied: This account has the role '{role}'. Please use the Teacher Login page.")
+                else:
+                    st.session_state["token"] = token
+                    st.session_state["role"] = "student"
+                    st.session_state["username"] = username
+                    st.session_state["org_id"] = payload.get("org_id")
+                    st.success("Logged in successfully!")
+                    st.switch_page("pages/03_Student_Dashboard.py")
             else:
                 st.error("Invalid credentials")
 
