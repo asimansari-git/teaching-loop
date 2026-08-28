@@ -50,6 +50,11 @@ class MockMongoDB:
         self.chat_sessions = MockMongoCollection()
 
 mock_db_instance = MockMongoDB()
+from backend import database
+from backend.services import session_service, ai_service
+database.get_mongo_db = lambda: mock_db_instance
+session_service.get_mongo_db = lambda: mock_db_instance
+ai_service.get_mongo_db = lambda: mock_db_instance
 chat_service.get_mongo_db = lambda: mock_db_instance
 
 client = TestClient(app)
