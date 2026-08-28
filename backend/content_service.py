@@ -1,13 +1,16 @@
 import os
+import io
+import json
+import logging
+import PyPDF2
 from google import genai
 from google.genai import types
 from .database import get_db
 from . import models
-import json
-import PyPDF2
-import io
 import chromadb
 from chromadb.utils import embedding_functions
+
+logger = logging.getLogger("teaching_platform.content")
 
 # Initialize ChromaDB (Persistent)
 CHROMA_DB_PATH = "./chroma_db"
@@ -15,24 +18,21 @@ chroma_client = chromadb.PersistentClient(path=CHROMA_DB_PATH)
 
 # Try to use Ollama embeddings, fallback to default if not available
 try:
-    print("Attempting to initialize Ollama embedding function...")
+    logger.info("Attempting to initialize Ollama embedding function...")
     embedding_function = embedding_functions.OllamaEmbeddingFunction(
         url="http://localhost:11434/api/embeddings",
         model_name="nomic-embed-text:latest",
     )
-    # Test the embedding function
     test_embedding = embedding_function(["test"])
     if not test_embedding or len(test_embedding) == 0:
         raise ValueError("Ollama returned empty embeddings")
-    print(f"✓ Ollama embeddings initialized successfully (dimension: {len(test_embedding[0])})")
+    logger.info(f"Ollama embeddings initialized successfully (dimension: {len(test_embedding[0])})")
     collection = chroma_client.get_or_create_collection(
         name="teaching_content", 
         embedding_function=embedding_function
     )
 except Exception as e:
-    print(f"⚠ Warning: Could not initialize Ollama embeddings: {e}")
-    print("Falling back to default SentenceTransformer embeddings (all-MiniLM-L6-v2)")
-    # Use default embeddings (SentenceTransformers)
+    logger.warning(f"Could not initialize Ollama embeddings: {e}. Falling back to default SentenceTransformer (all-MiniLM-L6-v2)")
     collection = chroma_client.get_or_create_collection(
         name="teaching_content"
     )
@@ -76,20 +76,19 @@ async def chunk_and_enhance_content(text: str) -> list[dict]:
     - "topics": List of strings.
     
     Raw Text:
-    {text[:30000]} # Limit input to avoid overload for now
+    {text[:30000]}
     """
     
     try:
         response = client.models.generate_content(
-            model="gemini-flash-latest", # Strong model for logic
+            model="gemini-flash-latest",
             contents=[types.Content(role="user", parts=[types.Part.from_text(text=prompt)])],
             config=types.GenerateContentConfig(response_mime_type="application/json")
         )
         data = json.loads(response.text)
         return data.get("chunks", [])
     except Exception as e:
-        print(f"Error chunking content: {e}")
-        # Fallback: verified simple chunking?
+        logger.error(f"Error chunking content: {e}")
         return [{"text": text[:1000], "topics": ["General"]}]
 
 async def index_chunk(chunk_id: str, text: str, topics: list, item_id: str):
@@ -97,17 +96,13 @@ async def index_chunk(chunk_id: str, text: str, topics: list, item_id: str):
     Embeds and indexes a verified chunk into ChromaDB.
     """
     try:
-        # Prepare metadata (topics as string for metadata filter mostly only supports simple types)
-        # We can store topics as comma-sep string
         topics_str = ", ".join(topics) if topics else ""
         
-        # Check if chunk already exists and delete it first to avoid duplicates
         try:
             collection.delete(ids=[str(chunk_id)])
-        except:
+        except Exception:
             pass  # It's okay if it doesn't exist
         
-        # Add with the embedding function automatically generating embeddings
         collection.add(
             documents=[text],
             metadatas=[{"topics": topics_str, "item_id": str(item_id)}],
@@ -115,9 +110,7 @@ async def index_chunk(chunk_id: str, text: str, topics: list, item_id: str):
         )
         return True
     except Exception as e:
-        print(f"Error indexing chunk: {e}")
-        import traceback
-        traceback.print_exc()
+        logger.error(f"Error indexing chunk {chunk_id}: {e}")
         return False
 
 async def query_content(query_text: str, n_results: int = 3, filter: dict = None) -> list[str]:
@@ -139,20 +132,19 @@ async def query_content(query_text: str, n_results: int = 3, filter: dict = None
 
         results = collection.query(**query_kwargs)
         documents = results.get("documents", [[]])[0] if results and "documents" in results else []
-        print("Results: ", documents)
+        logger.debug(f"Chroma query returned {len(documents)} documents")
         return documents
     except Exception as e:
-        # If query failed (e.g., filter mismatch), attempt fallback query without filter
         if filter:
             try:
                 limit = min(n_results, collection.count())
                 results = collection.query(query_texts=[query_text], n_results=limit)
                 documents = results.get("documents", [[]])[0] if results and "documents" in results else []
-                print("Results (fallback without filter): ", documents)
+                logger.debug(f"Chroma query fallback returned {len(documents)} documents")
                 return documents
             except Exception as fallback_err:
-                print(f"Error querying content (fallback): {fallback_err}")
+                logger.error(f"Error querying content (fallback): {fallback_err}")
                 return []
-        print(f"Error querying content: {e}")
+        logger.error(f"Error querying content: {e}")
         return []
         

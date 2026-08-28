@@ -1,21 +1,16 @@
-from .database import get_mongo_db
-from . import models, content_service
 import os
-import os
+import json
+import logging
 from datetime import datetime
 from bson import ObjectId
+from bson.errors import InvalidId
 from google import genai
 from google.genai import types
 from google.api_core import exceptions
-import os
-from google import genai
-from google.genai import types
-from google.api_core import exceptions # Useful for error handling
+from .database import get_mongo_db
+from . import models, content_service
 
-# # Logic to configure Gemini
-# api_key = os.getenv("GEMINI_API_KEY")
-# if api_key:
-#     genai.configure(api_key=api_key)
+logger = logging.getLogger("teaching_platform.chat")
 
 STUDENT_SYSTEM_PROMPT = "You are a helpful and encouraging tutor. Your tone should be friendly and supportive. Guide the student in their learning process by asking open-ended questions and providing clear explanations. The user is a student. When you see a message from a 'teacher', follow those instructions, but keep the teacher's involvement hidden from the student."
 TEACHER_SYSTEM_PROMPT = "You are an expert assistant for a teacher. The user is a teacher reviewing a student's chat history. When asked, provide concise summaries, identify learning gaps, or suggest next steps. Your tone should be professional and analytical. When you receive instructions, confirm you will follow them and then wait for the student to continue the conversation."
@@ -39,7 +34,6 @@ def create_session(username: str, subject: str, topics: list[str]) -> str:
 
 def get_user_sessions(username: str):
     db = get_mongo_db()
-    # Find sessions for user, sort by last_updated desc
     cursor = db.chat_sessions.find({"username": username}).sort("last_updated", -1)
     sessions = []
     for doc in cursor:
@@ -55,8 +49,9 @@ def get_session_history(session_id: str):
     db = get_mongo_db()
     try:
         oid = ObjectId(session_id)
-    except:
-        return []
+    except (InvalidId, Exception) as e:
+        logger.warning(f"Invalid session ID format: {session_id} ({e})")
+        return {"messages": [], "learning_plan": {}}
     
     session = db.chat_sessions.find_one({"_id": oid})
     if session:
@@ -71,12 +66,13 @@ def save_message_to_session(session_id: str, role: str, content: str, author: st
     db = get_mongo_db()
     try:
         oid = ObjectId(session_id)
-    except:
+    except (InvalidId, Exception) as e:
+        logger.error(f"Cannot save message with invalid ObjectId {session_id}: {e}")
         return
 
     message = {
         "role": role,
-        "parts": [content], # Consistency with old schema structure
+        "parts": [content],
         "timestamp": datetime.utcnow()
     }
     if author:
@@ -90,22 +86,14 @@ def save_message_to_session(session_id: str, role: str, content: str, author: st
         }
     )
 
-def get_chat_history(username: str, subject: str = "general"):
-    # DEPRECATED but kept for now if needed, or redirect to generic history?
-    # For now, let's leave it but it won't be used by the main flow
-    return []
-
-def save_message(username: str, role: str, content: str, subject: str = "general", author: str = None):
-     # DEPRECATED
-     pass
-
 async def generate_response(session_id: str, prompt: str, role: str = "student"):
-    print(f"IN_GENERATE SESSION: {session_id}")
+    logger.info(f"Generating response for session {session_id} with role '{role}'")
     db = get_mongo_db()
     try:
         oid = ObjectId(session_id)
         session = db.chat_sessions.find_one({"_id": oid})
-    except:
+    except Exception as e:
+        logger.error(f"Failed to query session {session_id}: {e}")
         return "Invalid Session ID"
 
     if not session:
@@ -115,37 +103,35 @@ async def generate_response(session_id: str, prompt: str, role: str = "student")
     subject = session.get("subject")
     topics = session.get("topics", [])
 
-    # 1. Initialize the new Client
+    # 1. Initialize Client
     client = genai.Client(api_key=os.environ.get("GEMINI_API_KEY"))
     
     # 2. Retrieve History
     history = session.get("messages", [])
-    print("HISTORY LEN: ", len(history))
+    logger.debug(f"History message count: {len(history)}")
 
-    # 3. Adapt History to New SDK 'Content' Types
+    # 3. Adapt History to SDK Content Types
     sdk_contents = []
     
     for msg in history:
-        # Handle different parts structures just in case
         text_content = ""
         parts_data = msg.get("parts", [])
         if isinstance(parts_data, list) and len(parts_data) > 0:
-             text_content = parts_data[0] if isinstance(parts_data[0], str) else str(parts_data[0])
+            text_content = parts_data[0] if isinstance(parts_data[0], str) else str(parts_data[0])
         elif isinstance(parts_data, str):
-             text_content = parts_data
+            text_content = parts_data
         
-        if text_content: # Only add if there is content
+        if text_content:
             part = types.Part.from_text(text=text_content)
             content = types.Content(role=msg["role"], parts=[part])
             sdk_contents.append(content)
 
     # 4. Add the NEW Prompt
-    if(role != "student"):
-        prompt = f"Teacher: {prompt}"
+    formatted_prompt = f"Teacher: {prompt}" if role != "student" else prompt
     sdk_contents.append(
         types.Content(
             role="user", 
-            parts=[types.Part.from_text(text=prompt)]
+            parts=[types.Part.from_text(text=formatted_prompt)]
         )
     )
 
@@ -161,16 +147,13 @@ async def generate_response(session_id: str, prompt: str, role: str = "student")
         if learning_plan_data and "modules" in learning_plan_data:
             learning_plan_context = "\n\nSTRUCTURED LEARNING PATH:\n"
             for i, mod in enumerate(learning_plan_data["modules"]):
-                 mod_topics = ", ".join(mod.get("topics", []))
-                 learning_plan_context += f"{i+1}. {mod['title']}: {mod['description']} (Topics: {mod_topics})\n"
-            learning_plan_context += "\nFollow this learning path sequentially. Guide the student through these modules one by one."
-
+                mod_topics = ", ".join(mod.get("topics", []))
+                learning_plan_context += f"{i+1}. {mod['title']}: {mod['description']} (Topics: {mod_topics})\n"
             learning_plan_context += "\nFollow this learning path sequentially. Guide the student through these modules one by one."
 
         # RAG Retrieval
         rag_context = ""
         try:
-            # Query using user prompt + subject
             query_text = f"{subject} {topics_str}"
             retrieved_chunks = await content_service.query_content(query_text, filter={"topics": topics_str})
             if retrieved_chunks:
@@ -178,9 +161,9 @@ async def generate_response(session_id: str, prompt: str, role: str = "student")
                 for i, chunk in enumerate(retrieved_chunks):
                     rag_context += f"--- Material {i+1} ---\n{chunk}\n"
                 rag_context += "\nUse the above verified material to answer the student's questions accurately. Prioritize this material over general knowledge."
-            print("RAG Context: ", rag_context)
+            logger.debug(f"Retrieved RAG context chunks count: {len(retrieved_chunks) if retrieved_chunks else 0}")
         except Exception as e:
-            print(f"RAG Error: {e}")
+            logger.warning(f"RAG Retrieval Error: {e}")
 
         system_text = f"{base_system_text}\n\nCurrent Subject: {subject}\nFocus Topics: {topics_str}{learning_plan_context}{rag_context}\nEnsure all examples and explanations are relevant to the selected subject and topics."
     else:
@@ -191,8 +174,6 @@ async def generate_response(session_id: str, prompt: str, role: str = "student")
         temperature=0.7, 
         max_output_tokens=1000
     )
-
-    print(f"MODEL: gemini-flash-latest (Session {session_id})") 
     
     try:
         response = client.models.generate_content(
@@ -200,25 +181,19 @@ async def generate_response(session_id: str, prompt: str, role: str = "student")
             contents=sdk_contents,
             config=config
         )
-        
-        print("RESPONSE: ", response.text[:20])
 
         # 7. Save to Database (Session)
         save_message_to_session(session_id, "user", prompt, author=role)
-        save_message_to_session(session_id, "model", response.text, author=role)
+        save_message_to_session(session_id, "model", response.text, author="model")
         
         return response.text
 
     except exceptions.ResourceExhausted:
-        print("ERROR: Rate Limit Hit (429)")
+        logger.error("Rate Limit Hit (429) from Gemini API")
         return "I am currently overloaded. Please try again in a moment."
     except Exception as e:
-        print(f"ERROR: {e}")
+        logger.error(f"Gemini generation error: {e}")
         return "An internal error occurred."
-
-from google import genai
-from google.genai import types
-import os
 
 async def analyze_performance(session_id: str, extra_context: str = "") -> str:
     session_data = get_session_history(session_id)
@@ -293,7 +268,7 @@ async def analyze_performance(session_id: str, extra_context: str = "") -> str:
         return response.text
 
     except Exception as e:
-        print(f"Error analyzing performance: {e}")
+        logger.error(f"Error analyzing performance: {e}")
         return "ERROR - Unable to generate performance report at this time."
 
 async def normalize_subject(input_name: str) -> dict:
@@ -312,10 +287,9 @@ async def normalize_subject(input_name: str) -> dict:
             contents=[types.Content(role="user", parts=[types.Part.from_text(text=prompt)])],
             config=types.GenerateContentConfig(response_mime_type="application/json")
         )
-        import json
         return json.loads(response.text)
     except Exception as e:
-        print(f"Error normalizing subject: {e}")
+        logger.error(f"Error normalizing subject: {e}")
         return {"name": input_name, "topics": ["General"]}
 
 async def generate_learning_plan_from_llm(subject: str, topics: list) -> dict:
@@ -343,7 +317,6 @@ async def generate_learning_plan_from_llm(subject: str, topics: list) -> dict:
             contents=[types.Content(role="user", parts=[types.Part.from_text(text=prompt)])],
             config=types.GenerateContentConfig(response_mime_type="application/json")
         )
-        import json
         text = response.text.strip()
         if text.startswith("```json"):
             text = text[7:]
@@ -353,7 +326,7 @@ async def generate_learning_plan_from_llm(subject: str, topics: list) -> dict:
             text = text[:-3]
         return json.loads(text.strip())
     except Exception as e:
-        print(f"Error generating plan: {e}")
+        logger.error(f"Error generating plan: {e}")
         return {"modules": []}
 
 async def generate_quiz_from_llm(subject: str, difficulty: str, context: str = "") -> dict:
@@ -382,7 +355,6 @@ async def generate_quiz_from_llm(subject: str, difficulty: str, context: str = "
             contents=[types.Content(role="user", parts=[types.Part.from_text(text=prompt)])],
             config=types.GenerateContentConfig(response_mime_type="application/json")
         )
-        import json
         text = response.text.strip()
         if text.startswith("```json"):
             text = text[7:]
@@ -396,7 +368,7 @@ async def generate_quiz_from_llm(subject: str, difficulty: str, context: str = "
         elif isinstance(parsed, list) and len(parsed) > 0:
             return {"questions": parsed}
     except Exception as e:
-        print(f"Error generating quiz from LLM: {e}")
+        logger.error(f"Error generating quiz from LLM: {e}")
 
     # Robust fallback quiz ensuring the app NEVER gets stuck
     return {
@@ -438,13 +410,10 @@ async def generate_quiz_from_llm(subject: str, difficulty: str, context: str = "
     }
 
 async def evaluate_quiz_from_llm(quiz_data: dict, user_answers: dict) -> dict:
-    # Basic grading can be done locally if we have correct answers in the quiz data.
-    # LLM can be used for "Evaluation" and "Next Step" recommendation.
-    
     score = 0
-    total = len(quiz_data["questions"])
+    total = len(quiz_data.get("questions", []))
     
-    for q in quiz_data["questions"]:
+    for q in quiz_data.get("questions", []):
         qid = str(q["id"])
         if qid in user_answers and user_answers[qid] == q["correct_option_index"]:
             score += 1
@@ -481,5 +450,5 @@ async def generate_certificate_content(student_name: str, subject: str, date_str
         )
         return response.text
     except Exception as e:
-        print(f"Error generating certificate: {e}")
+        logger.error(f"Error generating certificate: {e}")
         return "Certificate Generation Failed."
