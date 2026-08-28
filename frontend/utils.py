@@ -19,6 +19,24 @@ def decode_jwt_payload(token: str) -> dict:
     except Exception:
         return {}
 
+def handle_api_response(response: httpx.Response) -> bool:
+    """
+    Checks response status. If 401 Unauthorized, notifies user and provides re-login trigger.
+    Returns True if valid (not 401), False otherwise.
+    """
+    if response.status_code == 401:
+        st.error("⚠️ Your session has expired. Please sign in again.")
+        if st.button("🔑 Go to Login", key=f"relogin_{response.url.path}"):
+            logout()
+        return False
+    return True
+
+def logout():
+    """Clears session state and redirects to landing page."""
+    for key in list(st.session_state.keys()):
+        del st.session_state[key]
+    st.switch_page("app.py")
+
 def login_user(username, password):
     try:
         response = httpx.post(f"{API_URL}/auth/token", data={"username": username, "password": password})
@@ -67,6 +85,8 @@ def create_chat_session(subject, topics, token):
             json={"subject": subject, "topics": topics},
             headers=headers
         )
+        if not handle_api_response(response):
+            return None
         if response.status_code == 200:
             return response.json().get("session_id")
         return None
@@ -78,6 +98,8 @@ def get_chat_sessions(token):
     headers = {"Authorization": f"Bearer {token}"}
     try:
         response = httpx.get(f"{API_URL}/chat/sessions", headers=headers)
+        if not handle_api_response(response):
+            return []
         if response.status_code == 200:
             return response.json()
         return []
@@ -89,6 +111,8 @@ def get_session_history_by_id(session_id, token):
     headers = {"Authorization": f"Bearer {token}"}
     try:
         response = httpx.get(f"{API_URL}/chat/{session_id}/history", headers=headers)
+        if not handle_api_response(response):
+            return []
         if response.status_code == 200:
             return response.json()
         return []
@@ -103,8 +127,10 @@ def send_chat_message(prompt, session_id, token):
             f"{API_URL}/chat/{session_id}",
             json={"prompt": prompt},
             headers=headers,
-            timeout=60.0 # Increased timeout for Gemini
+            timeout=60.0
         )
+        if not handle_api_response(response):
+            return None
         if response.status_code == 200:
             return response.json().get("response")
         return None
@@ -112,25 +138,12 @@ def send_chat_message(prompt, session_id, token):
         st.error(f"Chat error: {e}")
         return None
 
-def get_chat_history(subject, token):
-    headers = {"Authorization": f"Bearer {token}"}
-    try:
-        response = httpx.get(
-            f"{API_URL}/chat/history",
-            params={"subject": subject},
-            headers=headers
-        )
-        if response.status_code == 200:
-            return response.json()
-        return []
-    except Exception as e:
-        st.error(f"Fetch error: {e}")
-        return []
-
 def get_students(token):
     headers = {"Authorization": f"Bearer {token}"}
     try:
         response = httpx.get(f"{API_URL}/reports/students", headers=headers)
+        if not handle_api_response(response):
+            return []
         if response.status_code == 200:
             return response.json()
         return []
@@ -142,6 +155,8 @@ def get_student_sessions_for_teacher(student_username, token):
     headers = {"Authorization": f"Bearer {token}"}
     try:
         response = httpx.get(f"{API_URL}/reports/sessions/{student_username}", headers=headers)
+        if not handle_api_response(response):
+            return []
         if response.status_code == 200:
             return response.json()
         return []
@@ -152,13 +167,14 @@ def get_student_sessions_for_teacher(student_username, token):
 def generate_report(student_id, session_id, subject, token):
     headers = {"Authorization": f"Bearer {token}"}
     try:
-        # Note: subject is passed for report metadata, but analysis is based on session_id
         response = httpx.post(
             f"{API_URL}/reports/generate",
             json={"student_id": student_id, "session_id": session_id, "subject": subject},
             headers=headers,
             timeout=60.0
         )
+        if not handle_api_response(response):
+            return None
         if response.status_code == 200:
             return response.json()
         return None
@@ -173,6 +189,8 @@ def get_student_reports(student_id, token):
             f"{API_URL}/reports/student/{student_id}",
             headers=headers
         )
+        if not handle_api_response(response):
+            return []
         if response.status_code == 200:
             return response.json()
         return []
@@ -184,6 +202,8 @@ def get_subjects(token):
     headers = {"Authorization": f"Bearer {token}"}
     try:
         response = httpx.get(f"{API_URL}/chat/subjects", headers=headers)
+        if not handle_api_response(response):
+            return []
         if response.status_code == 200:
             return response.json()
         return []
@@ -196,9 +216,11 @@ def validate_subject(subject_name, token):
     try:
         response = httpx.post(
             f"{API_URL}/chat/subjects/validate",
-            json={"name": subject_name, "topics": []}, # topics optional initially
+            json={"name": subject_name, "topics": []},
             headers=headers
         )
+        if not handle_api_response(response):
+            return None
         if response.status_code == 200:
             return response.json()
         return None
@@ -211,10 +233,12 @@ def create_learning_plan(session_id, token):
     try:
         response = httpx.post(
             f"{API_URL}/chat/learning/plan",
-            json={"session_id": session_id, "plan_content": {}}, # content generated by backend
+            json={"session_id": session_id, "plan_content": {}},
             headers=headers,
             timeout=30.0
         )
+        if not handle_api_response(response):
+            return None
         if response.status_code == 200:
             return response.json()
         return None
@@ -231,6 +255,8 @@ def generate_quiz(session_id, difficulty, token):
             headers=headers,
             timeout=60.0
         )
+        if not handle_api_response(response):
+            return None
         if response.status_code == 200:
             return response.json()
         detail = response.json().get("detail", response.text) if response.headers.get("content-type", "").startswith("application/json") else response.text
@@ -249,6 +275,8 @@ def submit_quiz(quiz_data, user_answers, token):
             headers=headers,
             timeout=30.0
         )
+        if not handle_api_response(response):
+            return None
         if response.status_code == 200:
             return response.json()
         st.error(f"Failed to submit quiz ({response.status_code}): {response.text}")
@@ -262,10 +290,12 @@ def get_certificate(session_id, subject, token):
     try:
         response = httpx.post(
             f"{API_URL}/reports/certificate",
-            json={"session_id": session_id, "subject": subject, "student_id": 0, "content": ""}, # student_id/content ignored
+            json={"session_id": session_id, "subject": subject, "student_id": 0, "content": ""},
             headers=headers,
             timeout=60.0
         )
+        if not handle_api_response(response):
+            return None
         if response.status_code == 200:
             return response.json().get("content")
         elif response.status_code == 400:
@@ -280,7 +310,9 @@ def upload_content(file, token):
     headers = {"Authorization": f"Bearer {token}"}
     files = {"file": (file.name, file, file.type)}
     try:
-        response = httpx.post(f"{API_URL}/content/upload", files=files, headers=headers, timeout=120.0) # Chunking might take time
+        response = httpx.post(f"{API_URL}/content/upload", files=files, headers=headers, timeout=120.0)
+        if not handle_api_response(response):
+            return None
         if response.status_code == 200:
             return response.json()
         st.error(f"Upload failed: {response.text}")
@@ -293,6 +325,8 @@ def get_pending_content(token):
     headers = {"Authorization": f"Bearer {token}"}
     try:
         response = httpx.get(f"{API_URL}/content/pending", headers=headers)
+        if not handle_api_response(response):
+            return []
         if response.status_code == 200:
             return response.json()
         return []
@@ -304,6 +338,8 @@ def update_chunk(chunk_id, updates, token):
     headers = {"Authorization": f"Bearer {token}"}
     try:
         response = httpx.post(f"{API_URL}/content/chunk/{chunk_id}", json=updates, headers=headers)
+        if not handle_api_response(response):
+            return False
         return response.status_code == 200
     except Exception as e:
         st.error(f"Error updating chunk: {e}")
@@ -313,6 +349,8 @@ def verify_item(item_id, token):
     headers = {"Authorization": f"Bearer {token}"}
     try:
         response = httpx.post(f"{API_URL}/content/verify/{item_id}", headers=headers)
+        if not handle_api_response(response):
+            return False
         return response.status_code == 200
     except Exception as e:
         st.error(f"Error verifying item: {e}")

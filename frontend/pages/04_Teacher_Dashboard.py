@@ -8,33 +8,61 @@ sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), '..')))
 from utils import (
     get_students, generate_report, get_student_reports, get_student_sessions_for_teacher, 
     get_session_history_by_id, send_chat_message, upload_content, get_pending_content, 
-    update_chunk, verify_item
+    update_chunk, verify_item, logout
 )
 
-st.set_page_config(page_title="Teacher Dashboard", page_icon="🧑‍🏫")
+st.set_page_config(page_title="Teacher Dashboard", page_icon="🧑‍🏫", layout="wide")
 
 if "token" not in st.session_state or st.session_state.get("role") != "teacher":
     st.warning("Please login as a teacher first.")
     st.stop()
 
-st.title(f"Teacher Dashboard - {st.session_state['username']}")
+# --- Sidebar: Teacher Profile & Actions ---
+with st.sidebar:
+    st.markdown(f"### 🧑‍🏫 **{st.session_state.get('username', 'Teacher')}**")
+    st.caption("Role: Verified Educator")
+    if st.button("🚪 Sign Out", use_container_width=True):
+        logout()
+    
+    st.divider()
+    st.markdown("### 📌 Quick Guidelines")
+    st.caption("• Monitor student conversations live.")
+    st.caption("• Intervene seamlessly without student awareness.")
+    st.caption("• Curate and index RAG teaching material.")
 
-tab1, tab2, tab3, tab4 = st.tabs(["Student List", "Reports", "Intervention", "Content Management"])
+st.title(f"Teacher Command Center 🧑‍🏫")
+st.caption(f"Logged in as: **{st.session_state.get('username', 'Teacher')}**")
+
+tab1, tab2, tab3, tab4 = st.tabs(["👥 Student List", "📊 Reports & Analytics", "🕵️ Live Intervention", "📚 Knowledge Base (RAG)"])
 
 students = get_students(st.session_state["token"])
 
+# ==========================================
+# TAB 1: Student List
+# ==========================================
 with tab1:
-    st.subheader("Enrolled Students")
+    st.subheader("Enrolled Students in Organization")
     if students:
-        df = pd.DataFrame(students)
-        st.dataframe(df[["id", "username", "role"]])
+        search_query = st.text_input("🔍 Filter students by username...", "", key="student_search_query")
+        filtered_students = [s for s in students if search_query.lower() in s.get("username", "").lower()] if search_query else students
+        
+        if filtered_students:
+            df = pd.DataFrame(filtered_students)
+            st.dataframe(df[["id", "username", "role"]], use_container_width=True)
+            st.caption(f"Showing {len(filtered_students)} of {len(students)} student(s)")
+        else:
+            st.info(f"No students matching '{search_query}'.")
     else:
-        st.info("No students found.")
+        st.info("No students currently registered in your organization.")
 
+# ==========================================
+# TAB 3: Live Intervention
+# ==========================================
 with tab3:
-    st.subheader("Intervention Mode")
+    st.subheader("Discreet Teacher Intervention")
+    st.caption("Inject pedagogical directions directly into the AI Tutor's system context. Instructions remain completely invisible to the student.")
     if students:
-        selected_student_username_int = st.selectbox("Select Student for Intervention", [s["username"] for s in students])
+        selected_student_username_int = st.selectbox("Select Student for Intervention", [s["username"] for s in students], key="int_student_select")
         # Fetch sessions
         sessions_int = get_student_sessions_for_teacher(selected_student_username_int, st.session_state["token"])
         
@@ -149,60 +177,51 @@ with tab2:
         st.warning("No students available to generate reports for.")
 
 with tab4:
-    st.subheader("Content Management (RAG)")
+    st.subheader("Course Knowledge Base & Document Curation")
+    st.caption("Upload course texts or PDFs. Verified materials are vectorized into ChromaDB and prioritized during student tutoring.")
     
-    # Upload Section
-    st.markdown("### Upload New Material")
-    uploaded_file = st.file_uploader("Upload PDF or Text file", type=["pdf", "txt", "md"])
-    if uploaded_file:
-        if st.button("Process & Upload"):
-            with st.spinner("Processing content with AI (this may take a moment)..."):
-                result = upload_content(uploaded_file, st.session_state["token"])
-                if result:
-                    st.success(f"Uploaded! Created {result.get('chunks_count')} chunks.")
-                    st.rerun()
+    col_up, col_list = st.columns([1, 2])
     
-    st.divider()
+    with col_up:
+        st.markdown("#### 📤 Upload Material")
+        uploaded_file = st.file_uploader("Upload PDF, TXT, or MD", type=["pdf", "txt", "md"])
+        if uploaded_file:
+            if st.button("🚀 Process & Chunk with AI", type="primary", use_container_width=True):
+                with st.spinner("Extracting, enhancing, and generating semantic chunks..."):
+                    result = upload_content(uploaded_file, st.session_state["token"])
+                    if result:
+                        st.success(f"Processed! Created {result.get('chunks_count')} semantic chunks.")
+                        st.rerun()
     
-    # Verification Section
-    st.markdown("### Pending Verification")
-    pending_items = get_pending_content(st.session_state["token"])
-    
-    if pending_items:
-        for item in pending_items:
-            with st.expander(f"{item['filename']} ({len(item['chunks'])} chunks) - {item['created_at']}"):
+    with col_list:
+        st.markdown("#### 📋 Material Verification Queue")
+        pending_items = get_pending_content(st.session_state["token"])
+        
+        if pending_items:
+            for item in pending_items:
+                is_verified = item.get("status") == "verified"
+                status_badge = "🟢 Verified" if is_verified else "🟡 Pending Verification"
                 
-                # Check status
-                if item["status"] == "verified":
-                    st.success("This item is verified and indexed.")
-                    continue
-
-                for chunk in item["chunks"]:
-                    st.markdown(f"**Chunk {chunk['id']}**")
-                    
-                    # Editable Text
-                    new_text = st.text_area("Content", chunk["text"], height=150, key=f"text_{chunk['id']}")
-                    
-                    # Editable Topics
-                    # Convert list to string for editing
-                    topics_str = ", ".join(chunk["topics"])
-                    new_topics_str = st.text_input("Topics (comma separated)", topics_str, key=f"topics_{chunk['id']}")
-                    new_topics = [t.strip() for t in new_topics_str.split(",") if t.strip()]
-                    
-                    # Save Changes Button (Per chunk? Or Bulk? Let's do per chunk for simplicity now)
-                    if st.button("Update Chunk", key=f"update_{chunk['id']}"):
-                        if update_chunk(chunk["id"], {"text": new_text, "topics": new_topics}, st.session_state["token"]):
-                            st.success("Chunk updated!")
-                            # Ideally rerun to refresh state, but might close expander. 
-                            # Let's verify if state persists.
+                with st.expander(f"{status_badge} | {item['filename']} ({len(item.get('chunks', []))} chunks) — {str(item.get('created_at', ''))[:10]}"):
+                    if is_verified:
+                        st.success("This document is verified and active in the RAG vector index.")
+                    else:
+                        for chunk in item.get("chunks", []):
+                            st.markdown(f"**Chunk ID: {chunk['id']}**")
+                            new_text = st.text_area("Content", chunk["text"], height=120, key=f"text_{chunk['id']}")
+                            topics_str = ", ".join(chunk.get("topics", []))
+                            new_topics_str = st.text_input("Topics (comma-separated)", topics_str, key=f"topics_{chunk['id']}")
+                            new_topics = [t.strip() for t in new_topics_str.split(",") if t.strip()]
+                            
+                            if st.button("💾 Save Chunk Changes", key=f"update_{chunk['id']}"):
+                                if update_chunk(chunk["id"], {"text": new_text, "topics": new_topics}, st.session_state["token"]):
+                                    st.success("Chunk updated!")
+                            st.divider()
                         
-                    st.divider()
-                
-                # Verify Whole Item
-                if st.button("Verify & Index", key=f"verify_{item['id']}"):
-                     with st.spinner("Indexing content into Vector DB..."):
-                         if verify_item(item["id"], st.session_state["token"]):
-                             st.success("Item verified and indexed successfully!")
-                             st.rerun()
-    else:
-        st.info("No content pending verification.")
+                        if st.button("✅ Verify & Index Entire Document", key=f"verify_{item['id']}", type="primary", use_container_width=True):
+                            with st.spinner("Embedding and storing in vector index..."):
+                                if verify_item(item["id"], st.session_state["token"]):
+                                    st.success("Document verified and indexed successfully!")
+                                    st.rerun()
+        else:
+            st.info("No documents awaiting verification.")
