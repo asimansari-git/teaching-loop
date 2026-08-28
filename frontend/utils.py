@@ -212,12 +212,14 @@ def generate_quiz(session_id, difficulty, token):
     try:
         response = httpx.post(
             f"{API_URL}/chat/quiz/generate",
-            json={"session_id": session_id, "difficulty": difficulty, "questions": {}},
+            json={"session_id": str(session_id), "difficulty": difficulty},
             headers=headers,
             timeout=60.0
         )
         if response.status_code == 200:
             return response.json()
+        detail = response.json().get("detail", response.text) if response.headers.get("content-type", "").startswith("application/json") else response.text
+        st.error(f"Failed to generate quiz ({response.status_code}): {detail}")
         return None
     except Exception as e:
         st.error(f"Error generating quiz: {e}")
@@ -229,10 +231,12 @@ def submit_quiz(quiz_data, user_answers, token):
         response = httpx.post(
             f"{API_URL}/chat/quiz/submit",
             json={"quiz_data": quiz_data, "user_answers": user_answers},
-            headers=headers
+            headers=headers,
+            timeout=30.0
         )
         if response.status_code == 200:
             return response.json()
+        st.error(f"Failed to submit quiz ({response.status_code}): {response.text}")
         return None
     except Exception as e:
         st.error(f"Error submitting quiz: {e}")

@@ -8,7 +8,6 @@ import PyPDF2
 import io
 import chromadb
 from chromadb.utils import embedding_functions
-from langchain_chroma import Chroma
 
 # Initialize ChromaDB (Persistent)
 CHROMA_DB_PATH = "./chroma_db"
@@ -29,11 +28,6 @@ try:
     collection = chroma_client.get_or_create_collection(
         name="teaching_content", 
         embedding_function=embedding_function
-    )
-    vector_store = Chroma(
-        collection=collection,
-        embedding_function=embedding_function,
-        persist_directory=CHROMA_DB_PATH
     )
 except Exception as e:
     print(f"⚠ Warning: Could not initialize Ollama embeddings: {e}")
@@ -130,26 +124,35 @@ async def query_content(query_text: str, n_results: int = 3, filter: dict = None
     """
     Query Chroma for relevant chunks.
     """
-    if filter:
-        try:
-            results = vector_store.as_retriever(
-                search_type="mmr",
-                search_kwargs={"k": n_results, "filter": filter}
-            ).get_relevant_documents(query_text)
-            print("Results: ", results)
-            return results 
-        except Exception as e:  
-            print(f"Error querying content: {e}")
-            return []   
-    else:
-        try:
-            results = vector_store.as_retriever(
-                search_type="mmr",
-                search_kwargs={"k": n_results}
-            ).get_relevant_documents(query_text)
-            print("Results: ", results)
-            return results
-        except Exception as e:  
-            print(f"Error querying content: {e}")
+    try:
+        count = collection.count()
+        if count == 0:
             return []
+
+        limit = min(n_results, count)
+        query_kwargs = {
+            "query_texts": [query_text],
+            "n_results": limit,
+        }
+        if filter:
+            query_kwargs["where"] = filter
+
+        results = collection.query(**query_kwargs)
+        documents = results.get("documents", [[]])[0] if results and "documents" in results else []
+        print("Results: ", documents)
+        return documents
+    except Exception as e:
+        # If query failed (e.g., filter mismatch), attempt fallback query without filter
+        if filter:
+            try:
+                limit = min(n_results, collection.count())
+                results = collection.query(query_texts=[query_text], n_results=limit)
+                documents = results.get("documents", [[]])[0] if results and "documents" in results else []
+                print("Results (fallback without filter): ", documents)
+                return documents
+            except Exception as fallback_err:
+                print(f"Error querying content (fallback): {fallback_err}")
+                return []
+        print(f"Error querying content: {e}")
+        return []
         

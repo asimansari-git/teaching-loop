@@ -106,46 +106,75 @@ async def create_learning_plan(request: models.LearningPlanCreate):
 @router.post("/quiz/generate")
 async def generate_quiz(request: models.QuizCreate, db: Session = Depends(database.get_db)):
     # Fetch session context
-    import pymongo
-    mongo_db = chat_service.get_mongo_db()
-    from bson import ObjectId
-    session = mongo_db.chat_sessions.find_one({"_id": ObjectId(request.session_id)})
-    subject = session.get("subject", "General") if session else "General"
-    learning_plan = session.get("learning_plan", {})
+    subject = "General"
+    learning_plan = {}
+    try:
+        from bson import ObjectId
+        mongo_db = chat_service.get_mongo_db()
+        session = mongo_db.chat_sessions.find_one({"_id": ObjectId(request.session_id)})
+        if session:
+            subject = session.get("subject", "General")
+            learning_plan = session.get("learning_plan", {})
+    except Exception as e:
+        print(f"Error fetching session context for quiz: {e}")
+
     print(f"SESSION ID: {request.session_id}")
     print(f"DIFFICULTY: {request.difficulty}")
-    quizzes = db.query(models.Quiz).filter(models.Quiz.session_id == request.session_id).all()
+    
+    # Check if a valid quiz already exists
+    quizzes = db.query(models.Quiz).filter(models.Quiz.session_id == str(request.session_id)).all()
     for quiz in quizzes:
         if quiz.difficulty == request.difficulty:
-            return quiz
+            if quiz.questions and len(quiz.questions) > 0:
+                return {
+                    "db_id": quiz.id,
+                    "difficulty": quiz.difficulty,
+                    "questions": quiz.questions,
+                    "score": quiz.score,
+                    "passed": quiz.passed
+                }
+            else:
+                db.delete(quiz)
+                db.commit()
     
+    # Generate new quiz
     quiz_data = await chat_service.generate_quiz_from_llm(subject, request.difficulty, learning_plan)
+    questions = quiz_data.get("questions") if quiz_data else []
+    
+    if not questions:
+        raise HTTPException(
+            status_code=500,
+            detail="Failed to generate quiz questions from AI service. Please try again."
+        )
     
     # Save Quiz to DB
     new_quiz = models.Quiz(
         session_id=str(request.session_id),
         difficulty=request.difficulty,
-        questions=quiz_data.get("questions")
+        questions=questions
     )
 
     db.add(new_quiz)
     db.commit()
     db.refresh(new_quiz)
-    # Inject ID so we can update it later
+    
+    # Inject ID so frontend can submit answers with it
     quiz_data["db_id"] = new_quiz.id
+    quiz_data["difficulty"] = request.difficulty
     
     return quiz_data
 
 @router.post("/quiz/submit")
 async def submit_quiz(request: dict, db: Session = Depends(database.get_db)): # Simplified request
     # Expects { "quiz_data": ..., "user_answers": ... }
-    quiz_data = request.get("quiz_data")
-    result = await chat_service.evaluate_quiz_from_llm(quiz_data, request.get("user_answers"))
+    quiz_data = request.get("quiz_data") or {}
+    user_answers = request.get("user_answers") or {}
+    result = await chat_service.evaluate_quiz_from_llm(quiz_data, user_answers)
     
     # Update DB if ID exists
-    db_id = quiz_data.get("db_id")
+    db_id = quiz_data.get("db_id") or quiz_data.get("id")
     if db_id:
-        quiz_record = db.query(models.Quiz).filter(models.Quiz.id == db_id).first()
+        quiz_record = db.query(models.Quiz).filter(models.Quiz.id == int(db_id)).first()
         if quiz_record:
             quiz_record.score = result["percentage"]
             quiz_record.passed = result["passed"]

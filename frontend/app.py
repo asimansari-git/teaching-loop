@@ -1,20 +1,42 @@
 import streamlit as st
 
-st.set_page_config(page_title="Teaching Platform", page_icon="🎓")
+st.set_page_config(page_title="Teaching Platform", page_icon="🎓", layout="wide")
 
 st.title("Welcome to the Teaching Platform 🎓")
+st.subheader("Your AI-Powered Personalized Learning & Evaluation System")
 
 st.markdown("""
-This platform helps students evaluate their skills and teachers to monitor progress.
+This platform bridges student self-paced learning with teacher supervision and AI tutoring.
 
-### Get Started
-- **Students**: Go to the **Student Login** page to access your learning dashboard.
-- **Teachers**: Go to the **Teacher Login** page to view reports and student progress.
+---
+### 🚀 Get Started
 
-### Features
-- 🤖 **AI-Powered Evaluation**: Conversational interface to test your knowledge.
-- 📊 **Detailed Reports**: Insightful feedback on strengths and weaknesses.
-- 📂 **History Tracking**: Access past evaluations anytime.
+Choose your portal to continue:
 """)
 
-st.sidebar.success("Select a page above.")
+col1, col2 = st.columns(2)
+
+with col1:
+    st.info("### 🧑‍🎓 Student Portal")
+    st.markdown("""
+    - Explore adaptive tutoring sessions tailored to your subjects.
+    - Follow AI-generated structured learning paths.
+    - Test your knowledge with adaptive multi-level quizzes.
+    - Earn verified completion certificates.
+    """)
+    if st.button("Go to Student Login ➡️", use_container_width=True):
+        st.switch_page("pages/01_Student_Login.py")
+
+with col2:
+    st.success("### 🧑‍🏫 Teacher Portal")
+    st.markdown("""
+    - Monitor student learning progress and chat sessions.
+    - Intervene in AI tutoring chats with discreet teacher guidance.
+    - Generate comprehensive student performance reports.
+    - Upload and curate course materials for RAG-enhanced tutoring.
+    """)
+    if st.button("Go to Teacher Login ➡️", use_container_width=True):
+        st.switch_page("pages/02_Teacher_Login.py")
+
+st.markdown("---")
+st.caption("🔒 Secure, role-isolated learning platform powered by Google Gemini and ChromaDB.")

@@ -2,7 +2,7 @@ from sqlalchemy import Column, Integer, String, Text, ForeignKey, DateTime, Bool
 from sqlalchemy.orm import relationship
 from datetime import datetime
 from pydantic import BaseModel
-from typing import List, Optional
+from typing import List, Optional, Any
 from .database import Base
 
 # --- SQLAlchemy Models ---
@@ -172,4 +172,4 @@ class LearningPlanCreate(BaseModel):
 class QuizCreate(BaseModel):
     session_id: str
     difficulty: str
-    questions: dict
+    questions: Optional[Any] = None

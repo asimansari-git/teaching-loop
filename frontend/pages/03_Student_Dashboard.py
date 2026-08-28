@@ -191,63 +191,95 @@ else:
                 st.rerun()
             
     if st.session_state.get("quiz_mode"):
-        st.subheader("📝 Adaptive Quiz")
-        if "current_quiz" not in st.session_state:
-             with st.spinner("Generating Quiz..."):
-                 # Determine difficulty? Start with easy.
-                 diff = st.session_state.get("quiz_difficulty", "easy")
-                 quiz_data = generate_quiz(session_id, diff, st.session_state["token"])
-                 st.session_state["current_quiz"] = quiz_data
+        diff = st.session_state.get("quiz_difficulty", "easy")
+        st.subheader(f"📝 Adaptive Quiz ({diff.capitalize()} Level)")
         
-        quiz = st.session_state["current_quiz"]
-        if quiz and "questions" in quiz:
-            with st.form("quiz_form"):
-                answers = {}
-                for q in quiz["questions"]:
-                    st.write(f"**{q['text']}**")
-                    choice = st.radio("Choose:", q['options'], key=q['id'])
-                    # Map choice back to index
-                    answers[str(q['id'])] = q['options'].index(choice) if choice else -1
-                
-                submitted = st.form_submit_button("Submit Quiz")
-                if submitted:
-                    result = submit_quiz(quiz, answers, st.session_state["token"])
-                    st.session_state["quiz_result"] = result
-                    st.rerun()
+        if "current_quiz" not in st.session_state or st.session_state["current_quiz"] is None:
+            with st.spinner(f"Generating {diff.capitalize()} level quiz..."):
+                quiz_data = generate_quiz(session_id, diff, st.session_state["token"])
+                if quiz_data and quiz_data.get("questions"):
+                    st.session_state["current_quiz"] = quiz_data
+                else:
+                    st.session_state["current_quiz"] = None
         
-        if "quiz_result" in st.session_state:
+        quiz = st.session_state.get("current_quiz")
+        
+        if "quiz_result" in st.session_state and st.session_state["quiz_result"]:
             res = st.session_state["quiz_result"]
-            st.write(f"**Score:** {res['score']}/{res['total']} ({res['percentage']}%)")
+            st.write(f"**Score:** {res.get('score', 0)}/{res.get('total', 0)} ({res.get('percentage', 0):.0f}%)")
             
-            if res['passed']:
+            if res.get('passed'):
                 st.success("Passed! 🎉")
-                # Logic for Next Level
                 current_diff = st.session_state.get("quiz_difficulty", "easy")
                 if current_diff == "easy":
                     if st.button("Proceed to Mid Level"):
                         st.session_state["quiz_difficulty"] = "mid"
-                        del st.session_state["current_quiz"]
-                        del st.session_state["quiz_result"]
+                        st.session_state.pop("current_quiz", None)
+                        st.session_state.pop("quiz_result", None)
                         st.rerun()
                 elif current_diff == "mid":
                     if st.button("Proceed to Hard Level"):
                         st.session_state["quiz_difficulty"] = "hard"
-                        del st.session_state["current_quiz"]
-                        del st.session_state["quiz_result"]
+                        st.session_state.pop("current_quiz", None)
+                        st.session_state.pop("quiz_result", None)
                         st.rerun()
                 else: 
-                     st.balloons()
-                     st.success("You are an Expert! 🏆")
-                     if st.button("Generate Certificate"):
-                         cert_text = get_certificate(session_id, selected_subject or "Adaptive Course", st.session_state["token"])
-                         if cert_text:
-                             st.download_button("Download Certificate", cert_text, file_name=f"Certificate_{session_id}.md")
-                     
+                    st.balloons()
+                    st.success("You are an Expert! 🏆")
+                    if st.button("Generate Certificate"):
+                        cert_text = get_certificate(session_id, selected_subject or "Adaptive Course", st.session_state["token"])
+                        if cert_text:
+                            st.download_button("Download Certificate", cert_text, file_name=f"Certificate_{session_id}.md")
             else:
                 st.error("Not quite there. Review the material and try again.")
-                if st.button("Back to Chat"):
+                col1, col2 = st.columns(2)
+                with col1:
+                    if st.button("🔄 Retake Quiz"):
+                        st.session_state.pop("current_quiz", None)
+                        st.session_state.pop("quiz_result", None)
+                        st.rerun()
+                with col2:
+                    if st.button("💬 Back to Chat", key="back_from_failed_quiz"):
+                        st.session_state["quiz_mode"] = False
+                        st.session_state.pop("quiz_result", None)
+                        st.session_state.pop("current_quiz", None)
+                        st.rerun()
+        elif quiz and quiz.get("questions"):
+            with st.form("quiz_form"):
+                answers = {}
+                for i, q in enumerate(quiz["questions"]):
+                    qid = str(q.get("id", i + 1))
+                    st.markdown(f"**Question {i+1}: {q.get('text', '')}**")
+                    options = q.get('options', [])
+                    if options:
+                        choice = st.radio(
+                            "Choose:",
+                            options,
+                            key=f"quiz_opt_{session_id}_{diff}_{qid}_{i}"
+                        )
+                        answers[qid] = options.index(choice) if choice in options else -1
+                    st.markdown("---")
+                
+                submitted = st.form_submit_button("Submit Quiz")
+                if submitted:
+                    result = submit_quiz(quiz, answers, st.session_state["token"])
+                    if result:
+                        st.session_state["quiz_result"] = result
+                    else:
+                        st.error("Failed to submit quiz. Please try again.")
+                    st.rerun()
+        else:
+            st.warning("⚠️ Quiz could not be generated at this time.")
+            col1, col2 = st.columns(2)
+            with col1:
+                if st.button("🔄 Try Generating Again"):
+                    st.session_state.pop("current_quiz", None)
+                    st.session_state.pop("quiz_result", None)
+                    st.rerun()
+            with col2:
+                if st.button("💬 Back to Chat", key="back_from_empty_quiz"):
                     st.session_state["quiz_mode"] = False
-                    del st.session_state["quiz_result"] # Keep quiz to retry? or reset?
-                    del st.session_state["current_quiz"]
+                    st.session_state.pop("current_quiz", None)
+                    st.session_state.pop("quiz_result", None)
                     st.rerun()
     
