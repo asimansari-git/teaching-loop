@@ -344,9 +344,14 @@ async def generate_learning_plan_from_llm(subject: str, topics: list) -> dict:
             config=types.GenerateContentConfig(response_mime_type="application/json")
         )
         import json
-        return json.loads(response.text)
-    except Exception as e:
-        print(f"Error generating plan: {e}")
+        text = response.text.strip()
+        if text.startswith("```json"):
+            text = text[7:]
+        elif text.startswith("```"):
+            text = text[3:]
+        if text.endswith("```"):
+            text = text[:-3]
+        return json.loads(text.strip())
     except Exception as e:
         print(f"Error generating plan: {e}")
         return {"modules": []}
@@ -378,10 +383,59 @@ async def generate_quiz_from_llm(subject: str, difficulty: str, context: str = "
             config=types.GenerateContentConfig(response_mime_type="application/json")
         )
         import json
-        return json.loads(response.text)
+        text = response.text.strip()
+        if text.startswith("```json"):
+            text = text[7:]
+        elif text.startswith("```"):
+            text = text[3:]
+        if text.endswith("```"):
+            text = text[:-3]
+        parsed = json.loads(text.strip())
+        if isinstance(parsed, dict) and "questions" in parsed and len(parsed["questions"]) > 0:
+            return parsed
+        elif isinstance(parsed, list) and len(parsed) > 0:
+            return {"questions": parsed}
     except Exception as e:
-        print(f"Error generating quiz: {e}")
-        return {"questions": []}
+        print(f"Error generating quiz from LLM: {e}")
+
+    # Robust fallback quiz ensuring the app NEVER gets stuck
+    return {
+        "questions": [
+            {
+                "id": 1,
+                "text": f"What is a fundamental concept when learning {subject}?",
+                "options": [
+                    f"Understanding core principles and syntax of {subject}",
+                    "Memorizing code without understanding logic",
+                    "Avoiding problem breakdown and debugging",
+                    "Skipping documentation completely"
+                ],
+                "correct_option_index": 0
+            },
+            {
+                "id": 2,
+                "text": f"Which of the following represents a best practice in {subject}?",
+                "options": [
+                    "Writing modular, readable, and testable code",
+                    "Hardcoding secrets in source files",
+                    "Ignoring error messages and stack traces",
+                    "Disabling version control"
+                ],
+                "correct_option_index": 0
+            },
+            {
+                "id": 3,
+                "text": f"At {difficulty} level in {subject}, how should complex problems be approached?",
+                "options": [
+                    "Decompose into smaller sub-problems step by step",
+                    "Guess solutions randomly until one works",
+                    "Skip tests and deploy directly to production",
+                    "Ignore edge cases"
+                ],
+                "correct_option_index": 0
+            }
+        ]
+    }
 
 async def evaluate_quiz_from_llm(quiz_data: dict, user_answers: dict) -> dict:
     # Basic grading can be done locally if we have correct answers in the quiz data.
