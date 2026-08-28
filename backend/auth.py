@@ -8,8 +8,17 @@ from sqlalchemy.orm import Session
 from . import models, database
 import os
 
+from dotenv import load_dotenv
+
+load_dotenv()
+
 # Configuration
-SECRET_KEY = os.getenv("SECRET_KEY", "your-secret-key-goes-here") # Change this in production!
+SECRET_KEY = os.getenv("SECRET_KEY")
+if not SECRET_KEY:
+    raise RuntimeError(
+        "CRITICAL SECURITY CONFIGURATION ERROR: 'SECRET_KEY' environment variable is not set. "
+        "Please configure a strong SECRET_KEY in your environment or .env file."
+    )
 ALGORITHM = "HS256"
 ACCESS_TOKEN_EXPIRE_MINUTES = 30
 

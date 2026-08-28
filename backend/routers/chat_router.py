@@ -4,10 +4,28 @@ from sqlalchemy.orm import Session
 from typing import List, Optional
 from pydantic import BaseModel
 
+from bson import ObjectId
+
 router = APIRouter(
     prefix="/chat",
     tags=["chat"]
 )
+
+def verify_session_access(session: dict, current_user: models.User, db: Session):
+    """Verifies that current_user has permission to read or write to this chat session."""
+    if not session:
+        raise HTTPException(status_code=404, detail="Session not found")
+    
+    if current_user.role == "student":
+        if session.get("username") != current_user.username:
+            raise HTTPException(status_code=403, detail="Not authorized to access this session")
+    elif current_user.role == "teacher":
+        session_username = session.get("username")
+        student = db.query(models.User).filter(models.User.username == session_username).first()
+        if not student or student.organization_id != current_user.organization_id:
+            raise HTTPException(status_code=403, detail="Not authorized to access student session outside your organization")
+    else:
+        raise HTTPException(status_code=403, detail="Invalid user role")
 
 @router.post("/start")
 async def start_session(request: models.CreateSessionRequest, current_user: models.User = Depends(auth.get_current_user)):
@@ -29,8 +47,20 @@ class ChatResponse(BaseModel):
     response: str
 
 @router.post("/{session_id}", response_model=ChatResponse)
-async def send_message(session_id: str, request: MessageRequest, current_user: models.User = Depends(auth.get_current_user)):
-    print(f"SESSION ID: {session_id}")
+async def send_message(
+    session_id: str,
+    request: MessageRequest,
+    current_user: models.User = Depends(auth.get_current_user),
+    db: Session = Depends(database.get_db)
+):
+    mongo_db = chat_service.get_mongo_db()
+    try:
+        session = mongo_db.chat_sessions.find_one({"_id": ObjectId(session_id)})
+    except Exception:
+        raise HTTPException(status_code=400, detail="Invalid Session ID format")
+    
+    verify_session_access(session, current_user, db)
+
     try:
         response_text = await chat_service.generate_response(
             session_id=session_id,
@@ -38,9 +68,6 @@ async def send_message(session_id: str, request: MessageRequest, current_user: m
             role=current_user.role
         )
         return {"response": response_text}
-    except Exception as e:
-        raise HTTPException(status_code=500, detail=str(e))
-
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
 
@@ -70,58 +97,50 @@ async def validate_subject(request: models.SubjectBase, current_user: models.Use
     return new_subject
 
 @router.post("/learning/plan")
-async def create_learning_plan(request: models.LearningPlanCreate):
-    # Retrieve session to get subject/topics if needed, or pass them in request? 
-    # Request has session_id, we can fetch from Mongo
-    session_history = chat_service.get_session_history(request.session_id)
-    # Actually we just need subject/topics. fetch from db is safer.
-    import pymongo
-    db = chat_service.get_mongo_db() # Should expose this or add a getter
-    from bson import ObjectId
+async def create_learning_plan(
+    request: models.LearningPlanCreate,
+    current_user: models.User = Depends(auth.get_current_user),
+    db: Session = Depends(database.get_db)
+):
+    mongo_db = chat_service.get_mongo_db()
     try:
-        session = db.chat_sessions.find_one({"_id": ObjectId(request.session_id)})
-        if not session:
-            raise HTTPException(status_code=404, detail="Session not found")
-            
-        subject = session.get("subject")
-        topics = session.get("topics", [])
-        
+        session = mongo_db.chat_sessions.find_one({"_id": ObjectId(request.session_id)})
+    except Exception:
+        raise HTTPException(status_code=400, detail="Invalid Session ID format")
+
+    verify_session_access(session, current_user, db)
+
+    subject = session.get("subject", "General")
+    topics = session.get("topics", [])
+    
+    try:
         plan_data = await chat_service.generate_learning_plan_from_llm(subject, topics)
-        
-        # Save Plan to SQL DB
-        # ... We need DB session here. 
-        # For simplicity in this step, let's just return the plan JSON. 
-        # The frontend can store it in session_state or we save it to Mongo session doc?
-        # Let's save to Mongo session doc for now as it bounds to the chat session tightly.
-        
-        db.chat_sessions.update_one(
+        mongo_db.chat_sessions.update_one(
             {"_id": ObjectId(request.session_id)},
             {"$set": {"learning_plan": plan_data}}
         )
         return plan_data
-        
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
 
 @router.post("/quiz/generate")
-async def generate_quiz(request: models.QuizCreate, db: Session = Depends(database.get_db)):
-    # Fetch session context
-    subject = "General"
-    learning_plan = {}
+async def generate_quiz(
+    request: models.QuizCreate,
+    current_user: models.User = Depends(auth.get_current_user),
+    db: Session = Depends(database.get_db)
+):
+    mongo_db = chat_service.get_mongo_db()
     try:
-        from bson import ObjectId
-        mongo_db = chat_service.get_mongo_db()
         session = mongo_db.chat_sessions.find_one({"_id": ObjectId(request.session_id)})
-        if session:
-            subject = session.get("subject", "General")
-            learning_plan = session.get("learning_plan", {})
-    except Exception as e:
-        print(f"Error fetching session context for quiz: {e}")
+    except Exception:
+        raise HTTPException(status_code=400, detail="Invalid Session ID format")
 
-    print(f"SESSION ID: {request.session_id}")
-    print(f"DIFFICULTY: {request.difficulty}")
+    verify_session_access(session, current_user, db)
+
+    subject = session.get("subject", "General")
+    learning_plan = session.get("learning_plan", {})
     
-    # Check if a valid quiz already exists
+    # Check if a valid quiz already exists for this session and difficulty
     quizzes = db.query(models.Quiz).filter(models.Quiz.session_id == str(request.session_id)).all()
     for quiz in quizzes:
         if quiz.difficulty == request.difficulty:
@@ -165,26 +184,55 @@ async def generate_quiz(request: models.QuizCreate, db: Session = Depends(databa
     return quiz_data
 
 @router.post("/quiz/submit")
-async def submit_quiz(request: dict, db: Session = Depends(database.get_db)): # Simplified request
-    # Expects { "quiz_data": ..., "user_answers": ... }
+async def submit_quiz(
+    request: dict,
+    current_user: models.User = Depends(auth.get_current_user),
+    db: Session = Depends(database.get_db)
+):
     quiz_data = request.get("quiz_data") or {}
     user_answers = request.get("user_answers") or {}
-    result = await chat_service.evaluate_quiz_from_llm(quiz_data, user_answers)
     
-    # Update DB if ID exists
+    # Verify session access if db_id is provided
     db_id = quiz_data.get("db_id") or quiz_data.get("id")
+    quiz_record = None
     if db_id:
         quiz_record = db.query(models.Quiz).filter(models.Quiz.id == int(db_id)).first()
         if quiz_record:
-            quiz_record.score = result["percentage"]
-            quiz_record.passed = result["passed"]
-            db.commit()
+            mongo_db = chat_service.get_mongo_db()
+            try:
+                session = mongo_db.chat_sessions.find_one({"_id": ObjectId(quiz_record.session_id)})
+                verify_session_access(session, current_user, db)
+            except HTTPException:
+                raise
+            except Exception:
+                pass
+
+    result = await chat_service.evaluate_quiz_from_llm(quiz_data, user_answers)
+    
+    # Update DB if record exists
+    if quiz_record:
+        quiz_record.score = result["percentage"]
+        quiz_record.passed = result["passed"]
+        db.commit()
             
     return result
 
 @router.get("/{session_id}/history")
-async def get_history(session_id: str, current_user: models.User = Depends(auth.get_current_user)):
-    # Verify ownership? For now, we assume if you have ID you can read, 
-    # but ideally check if session belongs to user or if user is teacher.
-    # We will trust internal logic for now or add a quick check if needed.
-    return chat_service.get_session_history(session_id)
+async def get_history(
+    session_id: str,
+    current_user: models.User = Depends(auth.get_current_user),
+    db: Session = Depends(database.get_db)
+):
+    mongo_db = chat_service.get_mongo_db()
+    try:
+        session = mongo_db.chat_sessions.find_one({"_id": ObjectId(session_id)})
+    except Exception:
+        raise HTTPException(status_code=400, detail="Invalid Session ID format")
+
+    verify_session_access(session, current_user, db)
+
+    return {
+        "messages": session.get("messages", []),
+        "learning_plan": session.get("learning_plan", {}),
+        "subject": session.get("subject", "General")
+    }

@@ -1,8 +1,23 @@
 import httpx
 import streamlit as st
 import os
+import base64
+import json
 
 API_URL = os.getenv("API_URL", "http://127.0.0.1:8000")
+
+def decode_jwt_payload(token: str) -> dict:
+    """Safely decodes claims payload from a JWT token without external cryptography dependencies."""
+    try:
+        parts = token.split(".")
+        if len(parts) != 3:
+            return {}
+        payload_b64 = parts[1]
+        padded = payload_b64 + "=" * (-len(payload_b64) % 4)
+        payload_bytes = base64.urlsafe_b64decode(padded)
+        return json.loads(payload_bytes.decode("utf-8"))
+    except Exception:
+        return {}
 
 def login_user(username, password):
     try:
