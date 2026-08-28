@@ -1,8 +1,11 @@
+import logging
 from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy.orm import Session
 from typing import List
 from .. import models, database, auth, chat_service
 from ..models import User, Report
+
+logger = logging.getLogger("teaching_platform.report_router")
 
 router = APIRouter(
     prefix="/reports",
@@ -14,7 +17,6 @@ def get_students(current_user: User = Depends(auth.get_current_user), db: Sessio
     if current_user.role != "teacher":
         raise HTTPException(status_code=403, detail="Not authorized")
     
-    # Filter students by the same organization as the teacher
     students = db.query(User).filter(
         User.role == "student",
         User.organization_id == current_user.organization_id
@@ -23,22 +25,17 @@ def get_students(current_user: User = Depends(auth.get_current_user), db: Sessio
 
 @router.post("/generate", response_model=models.ReportOut)
 async def generate_report(report_in: models.ReportCreate, current_user: User = Depends(auth.get_current_user), db: Session = Depends(database.get_db)):
-    print("Generating report for student: ", report_in.student_id)
+    logger.info(f"Generating report for student ID {report_in.student_id}")
     if current_user.role != "teacher":
         raise HTTPException(status_code=403, detail="Not authorized")
 
-    # Generate content using Gemini
     student = db.query(User).filter(User.id == report_in.student_id).first()
     if not student:
         raise HTTPException(status_code=404, detail="Student not found")
 
-    # Authorize: Teacher can only generate reports for students in their org
     if student.organization_id != current_user.organization_id:
         raise HTTPException(status_code=403, detail="Not authorized to access this student")
 
-    print("Passed db query")
-    
-    # Fetch Quiz Context
     quizzes = db.query(models.Quiz).filter(models.Quiz.session_id == report_in.session_id).all()
     quiz_context = ""
     if quizzes:
@@ -49,33 +46,20 @@ async def generate_report(report_in: models.ReportCreate, current_user: User = D
             quiz_context += f"- Level: {q.difficulty}, Score: {score_display}, Status: {status}\n"
             
     generated_content = await chat_service.analyze_performance(report_in.session_id, extra_context=quiz_context)
-    print("Generated content: ", generated_content)
-    if(generated_content.startswith("ERROR")):
+    if generated_content.startswith("ERROR"):
         raise HTTPException(status_code=500, detail=generated_content)
-    # We might need to fetch the session to get the subject if it wasn't passed?
-    # For now, let's assume subject is passed or we can fetch it?
-    # Simple fix: Let's fetch session details if subject is missing
-    subject = report_in.subject
-    if not subject:
-         # Small hack: we can parse from analyze_performance or just fetch from mongo
-         # Better to fetch from mongo in chat_service or here. 
-         # For speed, let's just default to "Session Report" if not provided, 
-         # but ideally frontend passes it.
-         subject = "Session Report" 
 
-    # Save Report
+    subject = report_in.subject or "Session Report"
+
     new_report = Report(
         student_id=report_in.student_id,
         subject=subject,
         content=generated_content
     )
-    print("New report: ", new_report)
     db.add(new_report)
-    print("Added to db")
     db.commit()
-    print("Committed to db")
     db.refresh(new_report)
-    print("Refreshed")
+    
     report_out = models.ReportOut(
         id=new_report.id,
         session_id=report_in.session_id,    
