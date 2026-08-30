@@ -152,11 +152,21 @@ with tab_chat:
             # Chat history container
             chat_box = st.container()
             with chat_box:
+                skip_next_model = False
                 for message in history:
                     role = message.get("role", "user")
                     author = message.get("author")
-                    if author == "teacher":
-                        continue  # Hidden teacher intervention
+                    visible = message.get("visible_to_student", True)
+                    
+                    if not visible or author in ["teacher", "teacher_model", "teacher_assistant", "model_to_teacher"]:
+                        if author == "teacher":
+                            skip_next_model = True
+                        continue
+                    
+                    if skip_next_model and role != "user":
+                        skip_next_model = False
+                        continue
+                    skip_next_model = False
                     
                     parts = message.get("parts", [])
                     content = parts[0] if isinstance(parts, list) and parts else str(parts)

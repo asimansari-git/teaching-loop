@@ -8,3 +8,4 @@ chroma_db/
 *.bin
 *.pkl
 .notes/
+.agents/

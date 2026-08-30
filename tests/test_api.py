@@ -170,3 +170,38 @@ def test_idor_session_history_protection():
     )
     assert res_unauthorized.status_code == 403
     assert "Not authorized" in res_unauthorized.json()["detail"]
+
+def test_teacher_intervention_hidden_from_student_history():
+    # 1. Login as student and create a session
+    login_res_s = client.post("/auth/token", data={"username": "teststudent", "password": "password123"})
+    student_token = login_res_s.json()["access_token"]
+    
+    session_res = client.post(
+        "/chat/start",
+        json={"subject": "Python", "topics": ["Loops"]},
+        headers={"Authorization": f"Bearer {student_token}"}
+    )
+    session_id = session_res.json()["session_id"]
+    
+    # 2. Add messages: student msg, model reply, teacher intervention, model confirmation
+    session_service.save_message_to_session(session_id, "user", "How do for loops work?", author="student", visible_to_student=True)
+    session_service.save_message_to_session(session_id, "model", "A for loop iterates over a sequence.", author="model", visible_to_student=True)
+    session_service.save_message_to_session(session_id, "user", "Focus on while loops next.", author="teacher", visible_to_student=False)
+    session_service.save_message_to_session(session_id, "model", "I confirm I will guide the student to while loops.", author="teacher_model", visible_to_student=False)
+    
+    # 3. Student requests history -> should only receive the 2 student/tutor messages
+    res_student = client.get(f"/chat/{session_id}/history", headers={"Authorization": f"Bearer {student_token}"})
+    assert res_student.status_code == 200
+    student_messages = res_student.json()["messages"]
+    assert len(student_messages) == 2
+    assert student_messages[0]["parts"] == ["How do for loops work?"]
+    assert student_messages[1]["parts"] == ["A for loop iterates over a sequence."]
+    
+    # 4. Teacher requests history -> should receive all 4 messages
+    login_res_t = client.post("/auth/token", data={"username": "testteacher", "password": "password123"})
+    teacher_token = login_res_t.json()["access_token"]
+    res_teacher = client.get(f"/chat/{session_id}/history", headers={"Authorization": f"Bearer {teacher_token}"})
+    assert res_teacher.status_code == 200
+    teacher_messages = res_teacher.json()["messages"]
+    assert len(teacher_messages) == 4
+

@@ -6,6 +6,7 @@ from google.genai import types
 from ..database import get_mongo_db
 from .session_service import get_session_history
 
+MODEL = os.environ.get("GEMINI_MODEL")
 logger = logging.getLogger("teaching_platform.report")
 
 async def analyze_performance(session_id: str, extra_context: str = "") -> str:
@@ -65,7 +66,7 @@ async def analyze_performance(session_id: str, extra_context: str = "") -> str:
 
     try:
         response = client.models.generate_content(
-            model="gemini-flash-lite-latest",
+            model=MODEL,
             contents=[
                 types.Content(
                     role="user",
@@ -98,7 +99,7 @@ async def generate_certificate_content(student_name: str, subject: str, date_str
     """
     try:
         response = client.models.generate_content(
-            model="gemini-flash-latest",
+            model=MODEL,
             contents=[types.Content(role="user", parts=[types.Part.from_text(text=prompt)])]
         )
         return response.text

@@ -4,6 +4,8 @@ import logging
 from google import genai
 from google.genai import types
 
+MODEL = os.environ.get("GEMINI_MODEL")
+
 logger = logging.getLogger("teaching_platform.quiz")
 
 def get_fallback_quiz(subject: str, difficulty: str) -> dict:
@@ -69,7 +71,7 @@ async def generate_quiz_from_llm(subject: str, difficulty: str, context: str = "
     """
     try:
         response = client.models.generate_content(
-            model="gemini-flash-latest",
+            model=MODEL,
             contents=[types.Content(role="user", parts=[types.Part.from_text(text=prompt)])],
             config=types.GenerateContentConfig(response_mime_type="application/json")
         )
