@@ -81,9 +81,11 @@ with tab3:
             # Display Chat (Container for scroll)
             chat_container = st.container(height=400)
             with chat_container:
-                for message in history_int["messages"]:
-                    role = message["role"]
+                prev_author = None
+                for message in history_int.get("messages", []):
+                    role = message.get("role", "user")
                     author = message.get("author")
+                    visible = message.get("visible_to_student", True)
                     
                     parts = message.get("parts", [])
                     content = parts[0] if isinstance(parts, list) and parts else str(parts)
@@ -96,8 +98,13 @@ with tab3:
                             with st.chat_message("user"):
                                 st.markdown(content)
                     else:
-                        with st.chat_message("assistant"):
-                            st.markdown(content)
+                        if not visible or author in ["teacher_model", "teacher_assistant", "model_to_teacher"] or prev_author == "teacher":
+                            with st.chat_message("assistant", avatar="🤖"):
+                                st.write(f"*(AI Confirmation to Teacher)*: {content}")
+                        else:
+                            with st.chat_message("assistant", avatar="🎓"):
+                                st.markdown(content)
+                    prev_author = author
             
             # Teacher Input
             if prompt_int := st.chat_input("Send instruction to AI (Hidden from Student)..."):

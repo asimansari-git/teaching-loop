@@ -56,7 +56,7 @@ def get_session_history(session_id: str) -> dict:
         }
     return {"messages": [], "learning_plan": {}}
 
-def save_message_to_session(session_id: str, role: str, content: str, author: str = None):
+def save_message_to_session(session_id: str, role: str, content: str, author: str = None, visible_to_student: bool = True):
     """Persists a new message turn into a MongoDB session document."""
     db = get_mongo_db()
     try:
@@ -68,7 +68,8 @@ def save_message_to_session(session_id: str, role: str, content: str, author: st
     message = {
         "role": role,
         "parts": [content],
-        "timestamp": datetime.utcnow()
+        "timestamp": datetime.utcnow(),
+        "visible_to_student": visible_to_student
     }
     if author:
         message["author"] = author
@@ -80,3 +81,4 @@ def save_message_to_session(session_id: str, role: str, content: str, author: st
             "$set": {"last_updated": datetime.utcnow()}
         }
     )
+

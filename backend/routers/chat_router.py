@@ -231,8 +231,26 @@ async def get_history(
 
     verify_session_access(session, current_user, db)
 
+    messages = session.get("messages", [])
+    if current_user.role == "student":
+        filtered_messages = []
+        skip_next_model = False
+        for msg in messages:
+            author = msg.get("author")
+            visible = msg.get("visible_to_student", True)
+            if not visible or author in ["teacher", "teacher_model", "teacher_assistant", "model_to_teacher"]:
+                if author == "teacher":
+                    skip_next_model = True
+                continue
+            if skip_next_model and msg.get("role") != "user":
+                skip_next_model = False
+                continue
+            skip_next_model = False
+            filtered_messages.append(msg)
+        messages = filtered_messages
+
     return {
-        "messages": session.get("messages", []),
+        "messages": messages,
         "learning_plan": session.get("learning_plan", {}),
         "subject": session.get("subject", "General")
     }

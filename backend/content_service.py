@@ -9,8 +9,10 @@ from .database import get_db
 from . import models
 import chromadb
 from chromadb.utils import embedding_functions
+from chromadb.config import Settings
 
 logger = logging.getLogger("teaching_platform.content")
+MODEL = os.environ.get("GEMINI_MODEL")
 
 CHROMA_DB_PATH = "./chroma_db"
 _chroma_client = None
@@ -23,7 +25,10 @@ def get_chroma_collection():
         return _collection
 
     if _chroma_client is None:
-        _chroma_client = chromadb.PersistentClient(path=CHROMA_DB_PATH)
+        _chroma_client = chromadb.PersistentClient( 
+            path=CHROMA_DB_PATH,
+            settings=Settings(anonymized_telemetry=False)
+        )
 
     try:
         embedding_function = embedding_functions.OllamaEmbeddingFunction(
@@ -81,7 +86,7 @@ async def chunk_and_enhance_content(text: str) -> list[dict]:
     
     try:
         response = client.models.generate_content(
-            model="gemini-flash-latest",
+            model=MODEL,
             contents=[types.Content(role="user", parts=[types.Part.from_text(text=prompt)])],
             config=types.GenerateContentConfig(response_mime_type="application/json")
         )

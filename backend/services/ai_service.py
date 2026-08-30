@@ -9,6 +9,8 @@ from ..database import get_mongo_db
 from .. import content_service
 from .session_service import save_message_to_session
 
+MODEL = os.environ.get("GEMINI_MODEL")
+
 logger = logging.getLogger("teaching_platform.ai")
 
 STUDENT_SYSTEM_PROMPT = (
@@ -109,13 +111,17 @@ async def generate_tutor_response(session_id: str, prompt: str, role: str = "stu
     
     try:
         response = client.models.generate_content(
-            model="gemini-flash-latest", 
+            model=MODEL, 
             contents=sdk_contents,
             config=config
         )
 
-        save_message_to_session(session_id, "user", prompt, author=role)
-        save_message_to_session(session_id, "model", response.text, author="model")
+        if role == "teacher":
+            save_message_to_session(session_id, "user", prompt, author="teacher", visible_to_student=False)
+            save_message_to_session(session_id, "model", response.text, author="teacher_model", visible_to_student=False)
+        else:
+            save_message_to_session(session_id, "user", prompt, author="student", visible_to_student=True)
+            save_message_to_session(session_id, "model", response.text, author="model", visible_to_student=True)
         
         return response.text
 
@@ -139,7 +145,7 @@ async def normalize_subject(input_name: str) -> dict:
     """
     try:
         response = client.models.generate_content(
-            model="gemini-flash-latest",
+            model=MODEL,
             contents=[types.Content(role="user", parts=[types.Part.from_text(text=prompt)])],
             config=types.GenerateContentConfig(response_mime_type="application/json")
         )
@@ -170,7 +176,7 @@ async def generate_learning_plan_from_llm(subject: str, topics: list) -> dict:
     """
     try:
         response = client.models.generate_content(
-            model="gemini-flash-latest",
+            model=MODEL,
             contents=[types.Content(role="user", parts=[types.Part.from_text(text=prompt)])],
             config=types.GenerateContentConfig(response_mime_type="application/json")
         )
