@@ -48,6 +48,20 @@ def get_fallback_quiz(subject: str, difficulty: str) -> dict:
         ]
     }
 
+def strip_answers(quiz_data: dict) -> dict:
+    """Strips correct_option_index from quiz questions before sending to client."""
+    if not isinstance(quiz_data, dict):
+        return quiz_data
+    safe_data = dict(quiz_data)
+    questions = quiz_data.get("questions", [])
+    safe_questions = []
+    for q in questions:
+        q_copy = dict(q)
+        q_copy.pop("correct_option_index", None)
+        safe_questions.append(q_copy)
+    safe_data["questions"] = safe_questions
+    return safe_data
+
 async def generate_quiz_from_llm(subject: str, difficulty: str, context: str = "") -> dict:
     """Generates an adaptive multiple-choice quiz using Gemini with automatic JSON parsing."""
     client = genai.Client(api_key=os.environ.get("GEMINI_API_KEY"))
@@ -93,15 +107,39 @@ async def generate_quiz_from_llm(subject: str, difficulty: str, context: str = "
     return get_fallback_quiz(subject, difficulty)
 
 async def evaluate_quiz_from_llm(quiz_data: dict, user_answers: dict) -> dict:
-    """Scores student responses locally against question answer keys and computes percentage and pass threshold."""
+    """Scores student responses locally against question answer keys and computes percentage, pass threshold, and question review."""
     score = 0
     questions = quiz_data.get("questions", []) if isinstance(quiz_data, dict) else []
     total = len(questions)
+    review = []
     
     for q in questions:
         qid = str(q.get("id"))
-        if qid in user_answers and user_answers[qid] == q.get("correct_option_index"):
+        correct_idx = q.get("correct_option_index")
+        user_choice_raw = user_answers.get(qid)
+        try:
+            user_choice_idx = int(user_choice_raw) if user_choice_raw is not None else None
+        except (ValueError, TypeError):
+            user_choice_idx = None
+
+        is_correct = (user_choice_idx is not None and user_choice_idx == correct_idx)
+        if is_correct:
             score += 1
+            
+        options = q.get("options", [])
+        user_choice_text = options[user_choice_idx] if (user_choice_idx is not None and 0 <= user_choice_idx < len(options)) else None
+        correct_choice_text = options[correct_idx] if (correct_idx is not None and 0 <= correct_idx < len(options)) else None
+
+        review.append({
+            "id": q.get("id"),
+            "text": q.get("text"),
+            "options": options,
+            "user_choice_index": user_choice_idx,
+            "user_choice_text": user_choice_text,
+            "correct_option_index": correct_idx,
+            "correct_option_text": correct_choice_text,
+            "is_correct": is_correct
+        })
             
     percentage = (score / total) * 100 if total > 0 else 0
     passed = percentage >= 70
@@ -110,5 +148,6 @@ async def evaluate_quiz_from_llm(quiz_data: dict, user_answers: dict) -> dict:
         "score": score,
         "total": total,
         "percentage": percentage,
-        "passed": passed
+        "passed": passed,
+        "review": review
     }

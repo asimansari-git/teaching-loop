@@ -205,3 +205,182 @@ def test_teacher_intervention_hidden_from_student_history():
     teacher_messages = res_teacher.json()["messages"]
     assert len(teacher_messages) == 4
 
+def test_quiz_answers_stripped_and_server_graded():
+    # 1. Login student and start session
+    login_res = client.post("/auth/token", data={"username": "teststudent", "password": "password123"})
+    token = login_res.json()["access_token"]
+    session_res = client.post(
+        "/chat/start",
+        json={"subject": "Python", "topics": ["Functions"]},
+        headers={"Authorization": f"Bearer {token}"}
+    )
+    session_id = session_res.json()["session_id"]
+
+    # 2. Generate quiz
+    gen_res = client.post(
+        "/chat/quiz/generate",
+        json={"session_id": session_id, "difficulty": "easy"},
+        headers={"Authorization": f"Bearer {token}"}
+    )
+    assert gen_res.status_code == 200
+    quiz_data = gen_res.json()
+    assert "db_id" in quiz_data
+    assert "questions" in quiz_data
+    assert len(quiz_data["questions"]) > 0
+
+    # Verify no correct_option_index is leaked to client
+    for q in quiz_data["questions"]:
+        assert "correct_option_index" not in q
+        assert "id" in q
+        assert "text" in q
+        assert len(q["options"]) == 4
+
+    # 3. Submit quiz with quiz_id
+    quiz_id = quiz_data["db_id"]
+    submit_res = client.post(
+        "/chat/quiz/submit",
+        json={"quiz_id": quiz_id, "user_answers": {"1": 0, "2": 0, "3": 0}},
+        headers={"Authorization": f"Bearer {token}"}
+    )
+    assert submit_res.status_code == 200
+    res = submit_res.json()
+    assert "score" in res
+    assert "total" in res
+    assert "percentage" in res
+    assert "passed" in res
+    assert "review" in res
+    assert len(res["review"]) == len(quiz_data["questions"])
+    assert res["review"][0]["correct_option_index"] is not None
+
+def test_certificate_ownership_and_tier_prerequisites():
+    login_res = client.post("/auth/token", data={"username": "teststudent", "password": "password123"})
+    student_token = login_res.json()["access_token"]
+    session_res = client.post(
+        "/chat/start",
+        json={"subject": "Data Science", "topics": ["Pandas"]},
+        headers={"Authorization": f"Bearer {student_token}"}
+    )
+    session_id = session_res.json()["session_id"]
+
+    # 1. Calling certificate before passing all quizzes -> 400 Bad Request
+    res_no_quiz = client.post(
+        "/reports/certificate",
+        json={"session_id": session_id, "subject": "Data Science", "student_id": 0, "content": ""},
+        headers={"Authorization": f"Bearer {student_token}"}
+    )
+    assert res_no_quiz.status_code == 400
+    assert "No quiz assessments found" in res_no_quiz.json()["detail"]
+
+    # 1b. Add only easy quiz -> 400 Bad Request indicating missing levels
+    from backend.database import SessionLocal
+    from backend.models import Quiz
+    db = SessionLocal()
+    try:
+        db.add(Quiz(session_id=session_id, difficulty="easy", questions=[], score=100.0, passed=True))
+        db.commit()
+    finally:
+        db.close()
+
+    res_partial_quiz = client.post(
+        "/reports/certificate",
+        json={"session_id": session_id, "subject": "Data Science", "student_id": 0, "content": ""},
+        headers={"Authorization": f"Bearer {student_token}"}
+    )
+    assert res_partial_quiz.status_code == 400
+    assert "Must complete and pass all quiz levels" in res_partial_quiz.json()["detail"]
+
+    # 2. Another student calling certificate for this session -> 403 Forbidden
+    login_other = client.post("/auth/token", data={"username": "otherstudent", "password": "password123"})
+    other_token = login_other.json()["access_token"]
+    res_forbidden = client.post(
+        "/reports/certificate",
+        json={"session_id": session_id, "subject": "Data Science", "student_id": 0, "content": ""},
+        headers={"Authorization": f"Bearer {other_token}"}
+    )
+    assert res_forbidden.status_code == 403
+    assert "Not authorized" in res_forbidden.json()["detail"]
+
+    # 3. Simulate passing Easy, Mid, and Hard in DB
+    from backend.database import SessionLocal
+    from backend.models import Quiz
+    db = SessionLocal()
+    try:
+        db.add(Quiz(session_id=session_id, difficulty="easy", questions=[], score=100.0, passed=True))
+        db.add(Quiz(session_id=session_id, difficulty="mid", questions=[], score=85.0, passed=True))
+        db.add(Quiz(session_id=session_id, difficulty="hard", questions=[], score=90.0, passed=True))
+        db.commit()
+    finally:
+        db.close()
+
+    # 4. Now generate certificate -> 200 OK with persistence
+    res_cert = client.post(
+        "/reports/certificate",
+        json={"session_id": session_id, "subject": "Data Science", "student_id": 0, "content": ""},
+        headers={"Authorization": f"Bearer {student_token}"}
+    )
+    assert res_cert.status_code == 200
+    cert_data = res_cert.json()
+    assert "content" in cert_data
+    assert "verification_hash" in cert_data
+    assert len(cert_data["verification_hash"]) == 16
+
+def test_content_curation_organization_authorization():
+    # 1. Register Teacher 2 in a new organization
+    client.post(
+        "/auth/register",
+        json={"username": "otherorgteacher", "password": "password123", "role": "teacher", "new_organization_name": "SecondOrg"}
+    )
+    login_t2 = client.post("/auth/token", data={"username": "otherorgteacher", "password": "password123"})
+    token_t2 = login_t2.json()["access_token"]
+
+    login_t1 = client.post("/auth/token", data={"username": "testteacher", "password": "password123"})
+    token_t1 = login_t1.json()["access_token"]
+
+    # 2. Teacher 1 creates ContentItem and Chunk
+    from backend.database import SessionLocal
+    from backend.models import ContentItem, ContentChunk, User
+    db = SessionLocal()
+    try:
+        t1_user = db.query(User).filter(User.username == "testteacher").first()
+        item = ContentItem(
+            filename="intro.pdf",
+            content_type="application/pdf",
+            teacher_id=t1_user.id,
+            organization_id=t1_user.organization_id,
+            status="processed"
+        )
+        db.add(item)
+        db.commit()
+        db.refresh(item)
+        chunk = ContentChunk(content_item_id=item.id, text="Variables store data.", topics=["variables"], status="pending")
+        db.add(chunk)
+        db.commit()
+        db.refresh(chunk)
+        chunk_id = chunk.id
+        item_id = item.id
+    finally:
+        db.close()
+
+    # 3. Teacher 2 (different org) attempts to update chunk -> 403 Forbidden
+    res_update_forbidden = client.post(
+        f"/content/chunk/{chunk_id}",
+        json={"text": "Tampered text"},
+        headers={"Authorization": f"Bearer {token_t2}"}
+    )
+    assert res_update_forbidden.status_code == 403
+
+    # 4. Teacher 2 attempts to verify item -> 403 Forbidden
+    res_verify_forbidden = client.post(
+        f"/content/verify/{item_id}",
+        headers={"Authorization": f"Bearer {token_t2}"}
+    )
+    assert res_verify_forbidden.status_code == 403
+
+    # 5. Teacher 1 (same org) updates chunk and verifies item -> 200 OK
+    res_update_ok = client.post(
+        f"/content/chunk/{chunk_id}",
+        json={"text": "Legitimate update"},
+        headers={"Authorization": f"Bearer {token_t1}"}
+    )
+    assert res_update_ok.status_code == 200
+

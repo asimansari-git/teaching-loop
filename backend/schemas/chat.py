@@ -1,6 +1,6 @@
 from pydantic import BaseModel, ConfigDict
 from datetime import datetime
-from typing import List, Optional, Any
+from typing import List, Optional, Any, Dict
 
 class CreateSessionRequest(BaseModel):
     subject: str
@@ -28,3 +28,8 @@ class QuizCreate(BaseModel):
     session_id: str
     difficulty: str
     questions: Optional[Any] = None
+
+class QuizSubmit(BaseModel):
+    quiz_id: Optional[int] = None
+    quiz_data: Optional[Dict[str, Any]] = None
+    user_answers: Dict[str, Any]

@@ -30,6 +30,7 @@ async def analyze_performance(session_id: str, extra_context: str = "") -> str:
     transcript = ""
     for msg in history:
         role = msg.get("role", "user")
+        author = msg.get("author")
         parts_data = msg.get("parts", [])
         if isinstance(parts_data, list) and len(parts_data) > 0:
             text_content = parts_data[0] if isinstance(parts_data[0], str) else str(parts_data[0])
@@ -38,7 +39,17 @@ async def analyze_performance(session_id: str, extra_context: str = "") -> str:
         else:
             text_content = ""
             
-        transcript += f"{role.upper()}: {text_content}\n"
+        if not text_content:
+            continue
+
+        if author == "teacher":
+            transcript += f"TEACHER INTERVENTION (HIDDEN FROM STUDENT): {text_content}\n"
+        elif author in ["teacher_model", "teacher_assistant", "model_to_teacher"]:
+            transcript += f"AI TUTOR CONFIRMATION TO TEACHER: {text_content}\n"
+        elif role == "user":
+            transcript += f"STUDENT: {text_content}\n"
+        else:
+            transcript += f"AI TUTOR: {text_content}\n"
     
     learning_plan_info = ""
     if learning_plan:
@@ -50,6 +61,8 @@ async def analyze_performance(session_id: str, extra_context: str = "") -> str:
     Context Information:
     {learning_plan_info}
     {extra_context}
+
+    Note on Guidance: Lines labeled 'TEACHER INTERVENTION (HIDDEN FROM STUDENT)' represent pedagogical instructions provided discreetly by the teacher to guide the tutor. Evaluate how the student adapted to redirected concepts, but do NOT attribute teacher instructions to the student.
 
     Provide a detailed performance report including:
     1. Strengths

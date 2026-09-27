@@ -1,16 +1,19 @@
 import logging
-from datetime import datetime
+from datetime import datetime, timezone
 from bson import ObjectId
 from bson.errors import InvalidId
 from ..database import get_mongo_db
 
 logger = logging.getLogger("teaching_platform.session")
 
+def get_now():
+    return datetime.now(timezone.utc)
+
 def create_session(username: str, subject: str, topics: list[str]) -> str:
     """Creates a new learning chat session document in MongoDB."""
     db = get_mongo_db()
     title = f"{subject} - {', '.join(topics)}" if topics else f"{subject} - General"
-    now = datetime.utcnow()
+    now = get_now()
     
     session = {
         "username": username,
@@ -65,10 +68,11 @@ def save_message_to_session(session_id: str, role: str, content: str, author: st
         logger.error(f"Cannot save message with invalid ObjectId {session_id}: {e}")
         return
 
+    now = get_now()
     message = {
         "role": role,
         "parts": [content],
-        "timestamp": datetime.utcnow(),
+        "timestamp": now,
         "visible_to_student": visible_to_student
     }
     if author:
@@ -78,7 +82,6 @@ def save_message_to_session(session_id: str, role: str, content: str, author: st
         {"_id": oid},
         {
             "$push": {"messages": message},
-            "$set": {"last_updated": datetime.utcnow()}
+            "$set": {"last_updated": now}
         }
     )
-

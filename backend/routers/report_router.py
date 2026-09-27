@@ -1,9 +1,12 @@
 import logging
+import hashlib
+from datetime import datetime, timezone
+from bson import ObjectId
 from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy.orm import Session
 from typing import List
 from .. import models, database, auth, chat_service
-from ..models import User, Report
+from ..models import User, Report, Certificate
 
 logger = logging.getLogger("teaching_platform.report_router")
 
@@ -101,40 +104,84 @@ def get_student_reports(student_id: int, current_user: User = Depends(auth.get_c
 
 @router.post("/certificate")
 async def generate_certificate(request: models.ReportCreate, current_user: User = Depends(auth.get_current_user), db: Session = Depends(database.get_db)):
-    # Verify User
-    if current_user.role != "student": 
-        # Only students generate their own certificates? Or teachers too? 
-        # Requirement says "Download Certificate" in student dashboard.
-        pass
-        
-    # Fetch Quiz Results
-    quizzes = db.query(models.Quiz).filter(models.Quiz.session_id == request.session_id).all()
+    if current_user.role != "student":
+        raise HTTPException(status_code=403, detail="Certificates can only be earned and requested by students.")
+
+    mongo_db = chat_service.get_mongo_db()
+    try:
+        session = mongo_db.chat_sessions.find_one({"_id": ObjectId(request.session_id)})
+    except Exception:
+        raise HTTPException(status_code=400, detail="Invalid Session ID format")
+
+    if not session:
+        raise HTTPException(status_code=404, detail="Session not found")
+
+    if session.get("username") != current_user.username:
+        raise HTTPException(status_code=403, detail="Not authorized to generate certificate for another student's session")
+
+    # Check if a certificate has already been issued for this session
+    existing_cert = db.query(Certificate).filter(
+        Certificate.student_id == current_user.id,
+        Certificate.session_id == str(request.session_id)
+    ).first()
+    if existing_cert:
+        return {
+            "content": existing_cert.content,
+            "verification_hash": existing_cert.verification_hash,
+            "created_at": existing_cert.created_at
+        }
+
+    # Fetch and validate Quiz Results across all levels
+    quizzes = db.query(models.Quiz).filter(models.Quiz.session_id == str(request.session_id)).all()
+    if not quizzes:
+        raise HTTPException(status_code=400, detail="No quiz assessments found for this session.")
+
     quiz_summary = ""
-    passed_hard = False
+    passed_levels = set()
     for q in quizzes:
         status = "Passed" if q.passed else "Failed"
         score_display = f"{q.score:.1f}%" if q.score is not None else "N/A"
-        quiz_summary += f"- Level: {q.difficulty}, Score: {score_display}, Status: {status}\n"
-        if q.difficulty.lower() == "hard" and q.passed:
-            passed_hard = True
-            
-    if not passed_hard:
-        # For testing, maybe lax this? No, requirement says "Evaluated to determine progression"
-        # Let's enforce it.
-        # Check if easy/mid passed? 
-        if not quizzes:
-             raise HTTPException(status_code=400, detail="No quiz data found.")
-        # raise HTTPException(status_code=400, detail="Must pass 'Hard' level quiz to generate certificate.")
-        pass # Allow for now if testing, but ideally enforce.
-        
-    # Generate
-    from datetime import datetime
-    date_str = datetime.utcnow().strftime("%Y-%m-%d")
+        quiz_summary += f"- Level: {q.difficulty.title()}, Score: {score_display}, Status: {status}\n"
+        if q.passed and q.score is not None and q.score >= 70:
+            passed_levels.add(q.difficulty.lower())
+
+    required_levels = {"easy", "mid", "hard"}
+    missing_levels = required_levels - passed_levels
+    if missing_levels:
+        missing_str = ", ".join(sorted(missing_levels)).title()
+        raise HTTPException(
+            status_code=400,
+            detail=f"Must complete and pass all quiz levels (Easy, Mid, and Hard >= 70%) to earn a certificate. Missing: {missing_str}"
+        )
+
+    # Generate certificate content with official timestamp and hash
+    now = datetime.now(timezone.utc)
+    date_str = now.strftime("%Y-%m-%d")
+    hash_seed = f"{current_user.id}:{request.session_id}:{now.timestamp()}"
+    verification_hash = hashlib.sha256(hash_seed.encode("utf-8")).hexdigest()[:16].upper()
+
+    course_subject = request.subject or session.get("subject", "Adaptive Learning Course")
     content = await chat_service.generate_certificate_content(
         student_name=current_user.username,
-        subject=request.subject or "Adaptive Learning Course",
+        subject=course_subject,
         date_str=date_str,
-        quiz_summary=quiz_summary
+        quiz_summary=f"{quiz_summary}\nVerification Code: `{verification_hash}`"
     )
-    
-    return {"content": content}
+
+    new_cert = Certificate(
+        student_id=current_user.id,
+        session_id=str(request.session_id),
+        subject=course_subject,
+        verification_hash=verification_hash,
+        content=content,
+        created_at=now
+    )
+    db.add(new_cert)
+    db.commit()
+    db.refresh(new_cert)
+
+    return {
+        "content": new_cert.content,
+        "verification_hash": new_cert.verification_hash,
+        "created_at": new_cert.created_at
+    }

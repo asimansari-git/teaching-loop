@@ -22,6 +22,7 @@ from .services.ai_service import (
 from .services.quiz_service import (
     generate_quiz_from_llm,
     evaluate_quiz_from_llm,
+    strip_answers,
 )
 from .services.report_service import (
     analyze_performance,
@@ -40,6 +41,7 @@ __all__ = [
     "generate_learning_plan_from_llm",
     "generate_quiz_from_llm",
     "evaluate_quiz_from_llm",
+    "strip_answers",
     "analyze_performance",
     "generate_certificate_content",
     "get_mongo_db"

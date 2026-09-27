@@ -65,3 +65,18 @@ def test_schemas_validation():
     # Quiz create schema
     quiz_req = QuizCreate(session_id="60d5ec49f1b2c8b1f8e4e1a1", difficulty="hard")
     assert quiz_req.difficulty == "hard"
+
+def test_strip_answers():
+    from backend.services.quiz_service import strip_answers
+    quiz = {
+        "questions": [
+            {"id": 1, "text": "Q1", "options": ["A", "B", "C", "D"], "correct_option_index": 0},
+            {"id": 2, "text": "Q2", "options": ["A", "B", "C", "D"], "correct_option_index": 2},
+        ]
+    }
+    stripped = strip_answers(quiz)
+    assert len(stripped["questions"]) == 2
+    for q in stripped["questions"]:
+        assert "correct_option_index" not in q
+        assert "id" in q
+        assert "text" in q

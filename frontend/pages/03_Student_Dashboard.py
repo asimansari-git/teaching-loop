@@ -235,6 +235,7 @@ with tab_quiz:
             total = quiz_result.get("total", 0)
             pct = quiz_result.get("percentage", 0)
             passed = quiz_result.get("passed", False)
+            review = quiz_result.get("review", [])
             
             st.metric(label="Quiz Score", value=f"{score}/{total}", delta=f"{pct:.1f}%")
             
@@ -268,6 +269,18 @@ with tab_quiz:
                     st.session_state.pop("quiz_result", None)
                     st.rerun()
                     
+            if review:
+                st.divider()
+                st.markdown("### 📋 **Assessment Breakdown & Explanations**")
+                for idx, item in enumerate(review):
+                    status_icon = "✅" if item.get("is_correct") else "❌"
+                    with st.expander(f"{status_icon} Question {idx+1}: {item.get('text', '')}", expanded=not item.get("is_correct")):
+                        st.markdown(f"**Your Answer:** {item.get('user_choice_text') or '*(No answer selected)*'}")
+                        if not item.get("is_correct"):
+                            st.markdown(f"**Correct Answer:** `{item.get('correct_option_text')}`")
+                        else:
+                            st.markdown("🎯 *Correctly answered!*")
+
         elif quiz and quiz.get("questions"):
             with st.form(f"quiz_form_{active_session_id}_{diff}"):
                 answers = {}
@@ -285,7 +298,8 @@ with tab_quiz:
                     st.divider()
 
                 if st.form_submit_button("Submit Assessment", type="primary", use_container_width=True):
-                    result = submit_quiz(quiz, answers, st.session_state["token"])
+                    quiz_ref = quiz.get("db_id") or quiz
+                    result = submit_quiz(quiz_ref, answers, st.session_state["token"])
                     if result:
                         st.session_state["quiz_result"] = result
                     else:

@@ -96,8 +96,8 @@ async def chunk_and_enhance_content(text: str) -> list[dict]:
         logger.error(f"Error chunking content: {e}")
         return [{"text": text[:1000], "topics": ["General"]}]
 
-async def index_chunk(chunk_id: str, text: str, topics: list, item_id: str) -> bool:
-    """Embeds and indexes a verified chunk into ChromaDB."""
+async def index_chunk(chunk_id: str, text: str, topics: list, item_id: str, organization_id: int = None) -> bool:
+    """Embeds and indexes a verified chunk into ChromaDB with tenant metadata."""
     try:
         collection = get_chroma_collection()
         topics_str = ", ".join(topics) if topics else ""
@@ -107,9 +107,15 @@ async def index_chunk(chunk_id: str, text: str, topics: list, item_id: str) -> b
         except Exception:
             pass
         
+        metadata = {
+            "topics": topics_str,
+            "item_id": str(item_id),
+            "organization_id": int(organization_id or 0)
+        }
+        
         collection.add(
             documents=[text],
-            metadatas=[{"topics": topics_str, "item_id": str(item_id)}],
+            metadatas=[metadata],
             ids=[str(chunk_id)]
         )
         return True
@@ -117,8 +123,8 @@ async def index_chunk(chunk_id: str, text: str, topics: list, item_id: str) -> b
         logger.error(f"Error indexing chunk {chunk_id}: {e}")
         return False
 
-async def query_content(query_text: str, n_results: int = 3, filter: dict = None) -> list[str]:
-    """Queries Chroma vector collection for relevant chunks."""
+async def query_content(query_text: str, n_results: int = 3, filter: dict = None, organization_id: int = None) -> list[str]:
+    """Queries Chroma vector collection for relevant chunks isolated by tenant."""
     try:
         collection = get_chroma_collection()
         count = collection.count()
@@ -126,12 +132,21 @@ async def query_content(query_text: str, n_results: int = 3, filter: dict = None
             return []
 
         limit = min(n_results, count)
+        
+        combined_filter = filter
+        if organization_id is not None:
+            org_filter = {"organization_id": int(organization_id)}
+            if filter:
+                combined_filter = {"$and": [filter, org_filter]}
+            else:
+                combined_filter = org_filter
+
         query_kwargs = {
             "query_texts": [query_text],
             "n_results": limit,
         }
-        if filter:
-            query_kwargs["where"] = filter
+        if combined_filter:
+            query_kwargs["where"] = combined_filter
 
         results = collection.query(**query_kwargs)
         documents = results.get("documents", [[]])[0] if results and "documents" in results else []
