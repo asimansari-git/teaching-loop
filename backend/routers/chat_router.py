@@ -145,10 +145,15 @@ async def generate_quiz(
     for quiz in quizzes:
         if quiz.difficulty == request.difficulty:
             if quiz.questions and len(quiz.questions) > 0:
+                safe_questions = []
+                for q in quiz.questions:
+                    q_copy = dict(q)
+                    q_copy.pop("correct_option_index", None)
+                    safe_questions.append(q_copy)
                 return {
                     "db_id": quiz.id,
                     "difficulty": quiz.difficulty,
-                    "questions": quiz.questions,
+                    "questions": safe_questions,
                     "score": quiz.score,
                     "passed": quiz.passed
                 }
@@ -166,7 +171,7 @@ async def generate_quiz(
             detail="Failed to generate quiz questions from AI service. Please try again."
         )
     
-    # Save Quiz to DB
+    # Save Quiz to DB with full answers
     new_quiz = models.Quiz(
         session_id=str(request.session_id),
         difficulty=request.difficulty,
@@ -177,11 +182,12 @@ async def generate_quiz(
     db.commit()
     db.refresh(new_quiz)
     
-    # Inject ID so frontend can submit answers with it
-    quiz_data["db_id"] = new_quiz.id
-    quiz_data["difficulty"] = request.difficulty
+    # Strip answers before returning to client
+    client_quiz_data = chat_service.strip_answers(quiz_data)
+    client_quiz_data["db_id"] = new_quiz.id
+    client_quiz_data["difficulty"] = request.difficulty
     
-    return quiz_data
+    return client_quiz_data
 
 @router.post("/quiz/submit")
 async def submit_quiz(
@@ -189,25 +195,37 @@ async def submit_quiz(
     current_user: models.User = Depends(auth.get_current_user),
     db: Session = Depends(database.get_db)
 ):
-    quiz_data = request.get("quiz_data") or {}
     user_answers = request.get("user_answers") or {}
+    quiz_id = request.get("quiz_id")
+    quiz_data = request.get("quiz_data") or {}
     
-    # Verify session access if db_id is provided
-    db_id = quiz_data.get("db_id") or quiz_data.get("id")
+    if not quiz_id and isinstance(quiz_data, dict):
+        quiz_id = quiz_data.get("db_id") or quiz_data.get("id")
+        
     quiz_record = None
-    if db_id:
-        quiz_record = db.query(models.Quiz).filter(models.Quiz.id == int(db_id)).first()
-        if quiz_record:
-            mongo_db = chat_service.get_mongo_db()
-            try:
-                session = mongo_db.chat_sessions.find_one({"_id": ObjectId(quiz_record.session_id)})
-                verify_session_access(session, current_user, db)
-            except HTTPException:
-                raise
-            except Exception:
-                pass
+    if quiz_id:
+        try:
+            quiz_record = db.query(models.Quiz).filter(models.Quiz.id == int(quiz_id)).first()
+        except (ValueError, TypeError):
+            quiz_record = None
 
-    result = await chat_service.evaluate_quiz_from_llm(quiz_data, user_answers)
+    if quiz_record:
+        mongo_db = chat_service.get_mongo_db()
+        try:
+            session = mongo_db.chat_sessions.find_one({"_id": ObjectId(quiz_record.session_id)})
+        except Exception:
+            raise HTTPException(status_code=400, detail="Invalid Session ID format")
+            
+        verify_session_access(session, current_user, db)
+        # Server-side authoritative grading using database record questions containing answer keys
+        eval_data = {"questions": quiz_record.questions}
+    elif quiz_data and "questions" in quiz_data:
+        # Fallback if no DB record found (e.g. isolated mocks)
+        eval_data = quiz_data
+    else:
+        raise HTTPException(status_code=400, detail="Quiz ID or valid questions required")
+
+    result = await chat_service.evaluate_quiz_from_llm(eval_data, user_answers)
     
     # Update DB if record exists
     if quiz_record:

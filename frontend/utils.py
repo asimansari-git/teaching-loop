@@ -266,12 +266,19 @@ def generate_quiz(session_id, difficulty, token):
         st.error(f"Error generating quiz: {e}")
         return None
 
-def submit_quiz(quiz_data, user_answers, token):
+def submit_quiz(quiz_id_or_data, user_answers, token):
     headers = {"Authorization": f"Bearer {token}"}
     try:
+        payload = {"user_answers": user_answers}
+        if isinstance(quiz_id_or_data, int) or (isinstance(quiz_id_or_data, str) and str(quiz_id_or_data).isdigit()):
+            payload["quiz_id"] = int(quiz_id_or_data)
+        elif isinstance(quiz_id_or_data, dict):
+            payload["quiz_id"] = quiz_id_or_data.get("db_id") or quiz_id_or_data.get("id")
+            payload["quiz_data"] = quiz_id_or_data
+
         response = httpx.post(
             f"{API_URL}/chat/quiz/submit",
-            json={"quiz_data": quiz_data, "user_answers": user_answers},
+            json=payload,
             headers=headers,
             timeout=30.0
         )
@@ -279,7 +286,8 @@ def submit_quiz(quiz_data, user_answers, token):
             return None
         if response.status_code == 200:
             return response.json()
-        st.error(f"Failed to submit quiz ({response.status_code}): {response.text}")
+        detail = response.json().get("detail", response.text) if response.headers.get("content-type", "").startswith("application/json") else response.text
+        st.error(f"Failed to submit quiz ({response.status_code}): {detail}")
         return None
     except Exception as e:
         st.error(f"Error submitting quiz: {e}")
@@ -298,8 +306,9 @@ def get_certificate(session_id, subject, token):
             return None
         if response.status_code == 200:
             return response.json().get("content")
-        elif response.status_code == 400:
-            st.warning(response.json().get("detail"))
+        elif response.status_code in [400, 403]:
+            detail = response.json().get("detail", "Certificate requirements not met.")
+            st.warning(f"⚠️ {detail}")
             return None
         return None
     except Exception as e:

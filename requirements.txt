@@ -4,6 +4,7 @@ python-dotenv
 fastapi
 uvicorn
 sqlalchemy
+psycopg
 psycopg2-binary
 pymongo
 python-jose[cryptography]

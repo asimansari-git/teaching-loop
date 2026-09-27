@@ -1,8 +1,11 @@
-from fastapi import APIRouter, Depends, HTTPException, UploadFile, File, Form
+import logging
+from fastapi import APIRouter, Depends, HTTPException, UploadFile, File
 from sqlalchemy.orm import Session
 from typing import List
 from .. import models, database, auth, content_service
 from ..models import User, ContentItem, ContentChunk
+
+logger = logging.getLogger("teaching_platform.content_router")
 
 router = APIRouter(
     prefix="/content",
@@ -23,11 +26,12 @@ async def upload_content(
         raw_text = await content_service.read_file_content(file, file.filename)
         chunks_data = await content_service.chunk_and_enhance_content(raw_text)
         
-        # Save Item
+        # Save Item with organization_id
         new_item = ContentItem(
             filename=file.filename,
             content_type=file.content_type,
             teacher_id=current_user.id,
+            organization_id=current_user.organization_id,
             status="processed"
         )
         db.add(new_item)
@@ -58,9 +62,14 @@ async def get_pending_content(
     if current_user.role != "teacher":
         raise HTTPException(status_code=403, detail="Not authorized")
         
-    # Items that have chunks
-    items = db.query(ContentItem).filter(ContentItem.teacher_id == current_user.id).all()
-    # Pydantic model will fetch relation chunks
+    # Items belonging to the teacher's organization
+    if current_user.organization_id:
+        items = db.query(ContentItem).filter(
+            (ContentItem.organization_id == current_user.organization_id) |
+            (ContentItem.teacher_id == current_user.id)
+        ).all()
+    else:
+        items = db.query(ContentItem).filter(ContentItem.teacher_id == current_user.id).all()
     return items
 
 @router.post("/chunk/{chunk_id}")
@@ -76,6 +85,14 @@ async def update_chunk(
     chunk = db.query(ContentChunk).filter(ContentChunk.id == chunk_id).first()
     if not chunk:
         raise HTTPException(status_code=404, detail="Chunk not found")
+
+    item = chunk.item
+    if item:
+        # Enforce organization authorization
+        if item.organization_id and current_user.organization_id and item.organization_id != current_user.organization_id:
+            raise HTTPException(status_code=403, detail="Not authorized to edit material from another organization")
+        elif not item.organization_id and item.teacher_id != current_user.id:
+            raise HTTPException(status_code=403, detail="Not authorized to edit this material")
         
     if "text" in updates:
         chunk.text = updates["text"]
@@ -97,16 +114,27 @@ async def verify_item(
     item = db.query(ContentItem).filter(ContentItem.id == item_id).first()
     if not item:
          raise HTTPException(status_code=404, detail="Item not found")
+
+    # Enforce organization authorization
+    if item.organization_id and current_user.organization_id and item.organization_id != current_user.organization_id:
+        raise HTTPException(status_code=403, detail="Not authorized to verify material from another organization")
+    elif not item.organization_id and item.teacher_id != current_user.id:
+        raise HTTPException(status_code=403, detail="Not authorized to verify this material")
          
     # Mark item as verified
     item.status = "verified"
     
-    # Mark all chunks as verified/approved and Index
-    print("Verifying items befor indexing")
+    # Mark all chunks as verified/approved and Index with organization_id
+    logger.info(f"Verifying and indexing item {item_id} for organization {current_user.organization_id}")
     for chunk in item.chunks:
         chunk.status = "approved"
-        # Trigger Chroma Embedding
-        await content_service.index_chunk(chunk.id, chunk.text, chunk.topics or [], item.id)
+        await content_service.index_chunk(
+            chunk.id,
+            chunk.text,
+            chunk.topics or [],
+            item.id,
+            organization_id=current_user.organization_id
+        )
         
     db.commit()
     return {"status": "verified"}
