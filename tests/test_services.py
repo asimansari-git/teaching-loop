@@ -80,3 +80,30 @@ def test_strip_answers():
         assert "correct_option_index" not in q
         assert "id" in q
         assert "text" in q
+
+def test_pypdf_read_file_content():
+    import io
+    from backend.content_service import read_file_content
+
+    class DummyFile:
+        async def read(self):
+            return b"Plain text content"
+
+    content = asyncio.run(read_file_content(DummyFile(), "test.txt"))
+    assert content == "Plain text content"
+
+def test_generate_textbook_article_structure():
+    from backend.services.ai_service import generate_textbook_article
+    res = asyncio.run(generate_textbook_article("Python", ["Syntax"]))
+    assert "title" in res
+    assert "topics" in res
+    assert "markdown_content" in res
+
+def test_locate_socratic_hint_structure():
+    from backend.services.ai_service import locate_socratic_hint
+    article_text = '<p id="p-1"><span id="s-1-1">Variables store data in Python.</span></p>'
+    res = asyncio.run(locate_socratic_hint("What is a variable?", article_text))
+    assert "target_element_id" in res
+    assert "highlight_quote" in res
+    assert "context_scope" in res
+    assert "socratic_hint" in res

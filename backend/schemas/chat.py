@@ -33,3 +33,25 @@ class QuizSubmit(BaseModel):
     quiz_id: Optional[int] = None
     quiz_data: Optional[Dict[str, Any]] = None
     user_answers: Dict[str, Any]
+
+class TextbookGenerateRequest(BaseModel):
+    session_id: str
+    topic_override: Optional[str] = None
+
+class TextbookArticleOut(BaseModel):
+    session_id: str
+    title: str
+    topics: List[str]
+    markdown_content: str
+    generated_at: Optional[datetime] = None
+
+class SocraticHintRequest(BaseModel):
+    session_id: str
+    question: str
+    article_text: Optional[str] = None
+
+class SocraticHintOut(BaseModel):
+    target_element_id: str
+    highlight_quote: str
+    context_scope: str
+    socratic_hint: str

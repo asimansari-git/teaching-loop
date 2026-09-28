@@ -1,6 +1,33 @@
 from pydantic import BaseModel, ConfigDict
 from datetime import datetime
-from typing import Optional
+from typing import Optional, List
+
+class ReviewHighlightItem(BaseModel):
+    element_id: str
+    quoted_text: str
+    question: str
+    tag: Optional[str] = None
+
+class ReviewSheetRequest(BaseModel):
+    session_id: str
+    student_id: Optional[int] = None
+    highlights: List[ReviewHighlightItem]
+
+class ReviewItem(BaseModel):
+    element_id: str
+    quoted_text: str
+    question: str
+    tag: Optional[str] = None
+    pedagogical_answer: str
+
+class ReviewSheetOut(BaseModel):
+    id: int
+    student_id: int
+    session_id: str
+    review_items: List[ReviewItem]
+    markdown_report: str
+    created_at: datetime
+    model_config = ConfigDict(from_attributes=True)
 
 class ReportCreate(BaseModel):
     student_id: int

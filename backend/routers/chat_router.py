@@ -3,6 +3,7 @@ from .. import auth, models, chat_service, database
 from sqlalchemy.orm import Session
 from typing import List, Optional
 from pydantic import BaseModel
+from datetime import datetime, timezone
 
 from bson import ObjectId
 
@@ -95,6 +96,81 @@ async def validate_subject(request: models.SubjectBase, current_user: models.Use
     db.refresh(new_subject)
     
     return new_subject
+
+@router.post("/textbook/generate", response_model=models.TextbookArticleOut)
+async def generate_textbook_article_endpoint(
+    request: models.TextbookGenerateRequest,
+    current_user: models.User = Depends(auth.get_current_user),
+    db: Session = Depends(database.get_db)
+):
+    mongo_db = chat_service.get_mongo_db()
+    try:
+        session = mongo_db.chat_sessions.find_one({"_id": ObjectId(request.session_id)})
+    except Exception:
+        raise HTTPException(status_code=400, detail="Invalid Session ID format")
+
+    verify_session_access(session, current_user, db)
+
+    subject = session.get("subject", "General")
+    topics = session.get("topics", [])
+
+    try:
+        article_result = await chat_service.generate_textbook_article(
+            subject=subject,
+            topics=topics,
+            topic_override=request.topic_override
+        )
+        now_utc = datetime.now(timezone.utc)
+        article_data = {
+            "title": article_result["title"],
+            "topics": article_result["topics"],
+            "markdown_content": article_result["markdown_content"],
+            "generated_at": now_utc
+        }
+        mongo_db.chat_sessions.update_one(
+            {"_id": ObjectId(request.session_id)},
+            {"$set": {"textbook_article": article_data, "last_updated": now_utc}}
+        )
+        return {
+            "session_id": request.session_id,
+            "title": article_result["title"],
+            "topics": article_result["topics"],
+            "markdown_content": article_result["markdown_content"],
+            "generated_at": now_utc
+        }
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+@router.post("/textbook/socratic-hint", response_model=models.SocraticHintOut)
+async def locate_socratic_hint_endpoint(
+    request: models.SocraticHintRequest,
+    current_user: models.User = Depends(auth.get_current_user),
+    db: Session = Depends(database.get_db)
+):
+    mongo_db = chat_service.get_mongo_db()
+    try:
+        session = mongo_db.chat_sessions.find_one({"_id": ObjectId(request.session_id)})
+    except Exception:
+        raise HTTPException(status_code=400, detail="Invalid Session ID format")
+
+    verify_session_access(session, current_user, db)
+
+    article_text = request.article_text
+    if not article_text:
+        textbook_article = session.get("textbook_article") or {}
+        article_text = textbook_article.get("markdown_content", "")
+
+    if not article_text:
+        raise HTTPException(status_code=400, detail="No textbook article text available for socratic hint calculation. Please generate a textbook article first.")
+
+    try:
+        hint_result = await chat_service.locate_socratic_hint(
+            question=request.question,
+            article_text=article_text
+        )
+        return hint_result
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
 
 @router.post("/learning/plan")
 async def create_learning_plan(
