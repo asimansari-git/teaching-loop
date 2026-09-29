@@ -2,7 +2,7 @@ import os
 import io
 import json
 import logging
-import PyPDF2
+import pypdf
 from google import genai
 from google.genai import types
 from .database import get_db
@@ -54,7 +54,7 @@ async def read_file_content(file, filename: str) -> str:
     """Reads PDF or plain text / markdown file contents into a string."""
     content = ""
     if filename.lower().endswith(".pdf"):
-        pdf_reader = PyPDF2.PdfReader(io.BytesIO(await file.read()))
+        pdf_reader = pypdf.PdfReader(io.BytesIO(await file.read()))
         for page in pdf_reader.pages:
             content += page.extract_text() + "\n"
     else:

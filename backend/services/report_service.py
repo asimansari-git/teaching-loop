@@ -119,3 +119,108 @@ async def generate_certificate_content(student_name: str, subject: str, date_str
     except Exception as e:
         logger.error(f"Error generating certificate: {e}")
         return "Certificate Generation Failed."
+
+async def compile_review_sheet(
+    session_id: str,
+    student_id: int,
+    highlights: list,
+    db_session
+) -> dict:
+    """Compiles an array of student highlights and doubt notes into a structured Q&A review sheet, saves a Report to SQL DB, and returns structured review sheet output."""
+    client = genai.Client(api_key=os.environ.get("GEMINI_API_KEY"))
+
+    mongo_db = get_mongo_db()
+    subject = "General"
+    try:
+        oid = ObjectId(session_id)
+        session = mongo_db.chat_sessions.find_one({"_id": oid})
+        if session:
+            subject = session.get("subject", "General")
+    except Exception as e:
+        logger.warning(f"Error fetching session for review sheet compilation: {e}")
+
+    highlights_summary = ""
+    for i, item in enumerate(highlights):
+        elem_id = item.get("element_id", "")
+        quote = item.get("quoted_text", "")
+        q = item.get("question", "")
+        tag = item.get("tag", "Note")
+        highlights_summary += f"{i+1}. [Tag: {tag}] [ID: {elem_id}] Quote: \"{quote}\" | Student Question: \"{q}\"\n"
+
+    prompt = f"""
+    You are an expert pedagogical AI tutor compiling a Review Sheet for a student on subject "{subject}".
+
+    The student highlighted the following passages and raised questions/doubts:
+    {highlights_summary}
+
+    Instructions:
+    1. For EACH highlighted item, generate a concise, targeted, authoritative pedagogical answer explaining the concept and answering the student's question.
+    2. Synthesize a complete Markdown Review Sheet report with clear section headings, student quotes, questions, and pedagogical explanations.
+
+    Return pure JSON with keys:
+    - "answers": A list of strings, where answers[i] is the pedagogical answer corresponding to highlight item i.
+    - "markdown_report": A formatted Markdown document containing the entire synthesized review sheet.
+    """
+
+    review_items = []
+    markdown_report = ""
+
+    try:
+        response = client.models.generate_content(
+            model=MODEL,
+            contents=[types.Content(role="user", parts=[types.Part.from_text(text=prompt)])],
+            config=types.GenerateContentConfig(response_mime_type="application/json")
+        )
+        text = response.text.strip()
+        if text.startswith("```json"):
+            text = text[7:]
+        elif text.startswith("```"):
+            text = text[3:]
+        if text.endswith("```"):
+            text = text[:-3]
+        data = json.loads(text.strip())
+        answers = data.get("answers", [])
+        markdown_report = data.get("markdown_report", "")
+
+        for i, item in enumerate(highlights):
+            ans = answers[i] if i < len(answers) else "Review the highlighted material for context."
+            review_items.append({
+                "element_id": item.get("element_id", ""),
+                "quoted_text": item.get("quoted_text", ""),
+                "question": item.get("question", ""),
+                "tag": item.get("tag"),
+                "pedagogical_answer": ans
+            })
+    except Exception as e:
+        logger.error(f"Error generating review sheet with Gemini: {e}")
+        markdown_report = f"# Review Sheet: {subject}\n\n"
+        for i, item in enumerate(highlights):
+            ans = "Review the highlighted text and discuss with your tutor."
+            review_items.append({
+                "element_id": item.get("element_id", ""),
+                "quoted_text": item.get("quoted_text", ""),
+                "question": item.get("question", ""),
+                "tag": item.get("tag"),
+                "pedagogical_answer": ans
+            })
+            markdown_report += f"### Passage {i+1} ({item.get('tag', 'Note')})\n> {item.get('quoted_text')}\n\n**Question:** {item.get('question')}\n\n**Answer:** {ans}\n\n"
+
+    from ..models import Report
+    report_subject = f"{subject} - Q&A Review Sheet"
+    new_report = Report(
+        student_id=student_id,
+        subject=report_subject,
+        content=markdown_report
+    )
+    db_session.add(new_report)
+    db_session.commit()
+    db_session.refresh(new_report)
+
+    return {
+        "id": new_report.id,
+        "student_id": student_id,
+        "session_id": session_id,
+        "review_items": review_items,
+        "markdown_report": markdown_report,
+        "created_at": new_report.created_at
+    }

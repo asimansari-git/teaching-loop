@@ -185,3 +185,40 @@ async def generate_certificate(request: models.ReportCreate, current_user: User 
         "verification_hash": new_cert.verification_hash,
         "created_at": new_cert.created_at
     }
+
+@router.post("/review-sheet", response_model=models.ReviewSheetOut)
+async def compile_review_sheet_endpoint(
+    request: models.ReviewSheetRequest,
+    current_user: User = Depends(auth.get_current_user),
+    db: Session = Depends(database.get_db)
+):
+    mongo_db = chat_service.get_mongo_db()
+    try:
+        session = mongo_db.chat_sessions.find_one({"_id": ObjectId(request.session_id)})
+    except Exception:
+        raise HTTPException(status_code=400, detail="Invalid Session ID format")
+
+    if not session:
+        raise HTTPException(status_code=404, detail="Session not found")
+
+    session_username = session.get("username")
+    if current_user.role == "student":
+        if session_username != current_user.username:
+            raise HTTPException(status_code=403, detail="Not authorized to access this session")
+        target_student_id = current_user.id
+    elif current_user.role == "teacher":
+        student = db.query(User).filter(User.username == session_username).first()
+        if not student or student.organization_id != current_user.organization_id:
+            raise HTTPException(status_code=403, detail="Not authorized to access student session outside your organization")
+        target_student_id = request.student_id or student.id
+    else:
+        raise HTTPException(status_code=403, detail="Invalid user role")
+
+    highlights_dicts = [h.model_dump() for h in request.highlights]
+    result = await chat_service.compile_review_sheet(
+        session_id=request.session_id,
+        student_id=target_student_id,
+        highlights=highlights_dicts,
+        db_session=db
+    )
+    return result

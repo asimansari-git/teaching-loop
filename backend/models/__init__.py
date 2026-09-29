@@ -2,7 +2,9 @@ from .db import Organization, User, Subject, Quiz, Report, Certificate, ContentI
 from ..schemas import (
     UserBase, UserCreate, UserOut, Token, TokenData, OrganizationOut,
     CreateSessionRequest, SessionSummary, SubjectBase, SubjectOut, LearningPlanCreate, QuizCreate, QuizSubmit,
+    TextbookGenerateRequest, TextbookArticleOut, SocraticHintRequest, SocraticHintOut,
     ReportCreate, ReportOut, CertificateCreate, CertificateOut,
+    ReviewHighlightItem, ReviewSheetRequest, ReviewItem, ReviewSheetOut,
     ContentChunkOut, ContentItemOut
 )
 
@@ -12,6 +14,8 @@ __all__ = [
     # Schemas
     "UserBase", "UserCreate", "UserOut", "Token", "TokenData", "OrganizationOut",
     "CreateSessionRequest", "SessionSummary", "SubjectBase", "SubjectOut", "LearningPlanCreate", "QuizCreate", "QuizSubmit",
+    "TextbookGenerateRequest", "TextbookArticleOut", "SocraticHintRequest", "SocraticHintOut",
     "ReportCreate", "ReportOut", "CertificateCreate", "CertificateOut",
+    "ReviewHighlightItem", "ReviewSheetRequest", "ReviewItem", "ReviewSheetOut",
     "ContentChunkOut", "ContentItemOut"
 ]

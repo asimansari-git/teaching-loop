@@ -18,6 +18,8 @@ from .services.ai_service import (
     generate_tutor_response as generate_response,
     normalize_subject,
     generate_learning_plan_from_llm,
+    generate_textbook_article,
+    locate_socratic_hint,
 )
 from .services.quiz_service import (
     generate_quiz_from_llm,
@@ -27,6 +29,7 @@ from .services.quiz_service import (
 from .services.report_service import (
     analyze_performance,
     generate_certificate_content,
+    compile_review_sheet,
 )
 from .database import get_mongo_db
 
@@ -39,10 +42,13 @@ __all__ = [
     "generate_tutor_response",
     "normalize_subject",
     "generate_learning_plan_from_llm",
+    "generate_textbook_article",
+    "locate_socratic_hint",
     "generate_quiz_from_llm",
     "evaluate_quiz_from_llm",
     "strip_answers",
     "analyze_performance",
     "generate_certificate_content",
+    "compile_review_sheet",
     "get_mongo_db"
 ]

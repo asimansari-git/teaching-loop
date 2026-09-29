@@ -384,3 +384,94 @@ def test_content_curation_organization_authorization():
     )
     assert res_update_ok.status_code == 200
 
+def test_textbook_generation_and_socratic_hint_api():
+    # 1. Login student
+    login_res = client.post("/auth/token", data={"username": "teststudent", "password": "password123"})
+    token = login_res.json()["access_token"]
+
+    # 2. Start a session
+    session_res = client.post(
+        "/chat/start",
+        json={"subject": "Computer Science", "topics": ["Algorithms"]},
+        headers={"Authorization": f"Bearer {token}"}
+    )
+    session_id = session_res.json()["session_id"]
+
+    # 3. Generate textbook article
+    tb_res = client.post(
+        "/chat/textbook/generate",
+        json={"session_id": session_id, "topic_override": "Sorting Algorithms"},
+        headers={"Authorization": f"Bearer {token}"}
+    )
+    assert tb_res.status_code == 200
+    tb_data = tb_res.json()
+    assert tb_data["session_id"] == session_id
+    assert "title" in tb_data
+    assert "markdown_content" in tb_data
+
+    # 4. Request Socratic hint
+    hint_res = client.post(
+        "/chat/textbook/socratic-hint",
+        json={"session_id": session_id, "question": "How does quicksort partition work?"},
+        headers={"Authorization": f"Bearer {token}"}
+    )
+    assert hint_res.status_code == 200
+    hint_data = hint_res.json()
+    assert "target_element_id" in hint_data
+    assert "highlight_quote" in hint_data
+    assert "socratic_hint" in hint_data
+
+    # 5. Unauthorized student accessing socratic hint -> 403 Forbidden
+    login_other = client.post("/auth/token", data={"username": "otherstudent", "password": "password123"})
+    other_token = login_other.json()["access_token"]
+    res_forbidden = client.post(
+        "/chat/textbook/socratic-hint",
+        json={"session_id": session_id, "question": "What is time complexity?"},
+        headers={"Authorization": f"Bearer {other_token}"}
+    )
+    assert res_forbidden.status_code == 403
+
+def test_review_sheet_compiler_api():
+    # 1. Login student
+    login_res = client.post("/auth/token", data={"username": "teststudent", "password": "password123"})
+    token = login_res.json()["access_token"]
+
+    # 2. Start a session
+    session_res = client.post(
+        "/chat/start",
+        json={"subject": "Database Systems", "topics": ["Indexing"]},
+        headers={"Authorization": f"Bearer {token}"}
+    )
+    session_id = session_res.json()["session_id"]
+
+    # 3. Post review sheet compilation request
+    highlights = [
+        {
+            "element_id": "s-1-1",
+            "quoted_text": "B-Trees maintain balanced search trees.",
+            "question": "How does node splitting work during insertion?",
+            "tag": "Tough"
+        }
+    ]
+    rs_res = client.post(
+        "/reports/review-sheet",
+        json={"session_id": session_id, "highlights": highlights},
+        headers={"Authorization": f"Bearer {token}"}
+    )
+    assert rs_res.status_code == 200
+    rs_data = rs_res.json()
+    assert "id" in rs_data
+    assert rs_data["session_id"] == session_id
+    assert len(rs_data["review_items"]) == 1
+    assert "pedagogical_answer" in rs_data["review_items"][0]
+    assert "markdown_report" in rs_data
+
+    # 4. Unauthorized student submitting review sheet for another student's session -> 403
+    login_other = client.post("/auth/token", data={"username": "otherstudent", "password": "password123"})
+    other_token = login_other.json()["access_token"]
+    res_unauth = client.post(
+        "/reports/review-sheet",
+        json={"session_id": session_id, "highlights": highlights},
+        headers={"Authorization": f"Bearer {other_token}"}
+    )
+    assert res_unauth.status_code == 403
