@@ -51,11 +51,12 @@ class MockMongoDB:
 
 mock_db_instance = MockMongoDB()
 from backend import database
-from backend.services import session_service, ai_service
+from backend.services import session_service, ai_service, report_service
 database.get_mongo_db = lambda: mock_db_instance
 session_service.get_mongo_db = lambda: mock_db_instance
 ai_service.get_mongo_db = lambda: mock_db_instance
 chat_service.get_mongo_db = lambda: mock_db_instance
+report_service.get_mongo_db = lambda: mock_db_instance
 
 client = TestClient(app)
 
@@ -475,3 +476,62 @@ def test_review_sheet_compiler_api():
         headers={"Authorization": f"Bearer {other_token}"}
     )
     assert res_unauth.status_code == 403
+
+def test_highlights_telemetry_and_micro_credential_api():
+    login_res = client.post("/auth/token", data={"username": "teststudent", "password": "password123"})
+    token = login_res.json()["access_token"]
+
+    session_res = client.post(
+        "/chat/start",
+        json={"subject": "Machine Learning", "topics": ["Neural Networks"]},
+        headers={"Authorization": f"Bearer {token}"}
+    )
+    session_id = session_res.json()["session_id"]
+
+    # 1. Post a highlight tagged as "Tough"
+    hl_res = client.post(
+        f"/chat/{session_id}/highlight",
+        json={
+            "element_id": "s-2-1",
+            "quoted_text": "Backpropagation computes gradients via chain rule.",
+            "question": "How do vanishing gradients happen?",
+            "tag": "Tough"
+        },
+        headers={"Authorization": f"Bearer {token}"}
+    )
+    assert hl_res.status_code == 200
+    hl_data = hl_res.json()
+    assert hl_data["element_id"] == "s-2-1"
+    assert hl_data["tag"] == "Tough"
+
+    # 2. Retrieve highlights
+    get_hl_res = client.get(
+        f"/chat/{session_id}/highlights",
+        headers={"Authorization": f"Bearer {token}"}
+    )
+    assert get_hl_res.status_code == 200
+    highlights_list = get_hl_res.json()
+    assert len(highlights_list) == 1
+
+    # 3. Request micro-credential status
+    mc_res = client.get(
+        f"/reports/micro-credential/{session_id}",
+        headers={"Authorization": f"Bearer {token}"}
+    )
+    assert mc_res.status_code == 200
+    mc_data = mc_res.json()
+    assert mc_data["session_id"] == session_id
+    assert mc_data["tough_count"] == 1
+    assert "Backpropagation" in mc_data["tough_topics"][0]
+
+    # 4. Generate targeted refresher quiz
+    ref_res = client.post(
+        "/chat/quiz/refresher",
+        json={"session_id": session_id},
+        headers={"Authorization": f"Bearer {token}"}
+    )
+    assert ref_res.status_code == 200
+    ref_data = ref_res.json()
+    assert ref_data["difficulty"] == "refresher"
+    assert "db_id" in ref_data
+    assert len(ref_data["questions"]) > 0

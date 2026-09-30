@@ -1,10 +1,11 @@
 from .auth import UserBase, UserCreate, UserOut, Token, TokenData, OrganizationOut
 from .chat import (
     CreateSessionRequest, SessionSummary, SubjectBase, SubjectOut, LearningPlanCreate, QuizCreate, QuizSubmit,
-    TextbookGenerateRequest, TextbookArticleOut, SocraticHintRequest, SocraticHintOut
+    TextbookGenerateRequest, TextbookArticleOut, SocraticHintRequest, SocraticHintOut,
+    HighlightCreate, HighlightOut, RefresherQuizRequest
 )
 from .report import (
-    ReportCreate, ReportOut, CertificateCreate, CertificateOut,
+    ReportCreate, ReportOut, CertificateCreate, CertificateOut, MicroCredentialOut,
     ReviewHighlightItem, ReviewSheetRequest, ReviewItem, ReviewSheetOut
 )
 from .content import ContentChunkOut, ContentItemOut
@@ -13,7 +14,8 @@ __all__ = [
     "UserBase", "UserCreate", "UserOut", "Token", "TokenData", "OrganizationOut",
     "CreateSessionRequest", "SessionSummary", "SubjectBase", "SubjectOut", "LearningPlanCreate", "QuizCreate", "QuizSubmit",
     "TextbookGenerateRequest", "TextbookArticleOut", "SocraticHintRequest", "SocraticHintOut",
-    "ReportCreate", "ReportOut", "CertificateCreate", "CertificateOut",
+    "HighlightCreate", "HighlightOut", "RefresherQuizRequest",
+    "ReportCreate", "ReportOut", "CertificateCreate", "CertificateOut", "MicroCredentialOut",
     "ReviewHighlightItem", "ReviewSheetRequest", "ReviewItem", "ReviewSheetOut",
     "ContentChunkOut", "ContentItemOut"
 ]

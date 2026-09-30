@@ -62,6 +62,62 @@ def strip_answers(quiz_data: dict) -> dict:
     safe_data["questions"] = safe_questions
     return safe_data
 
+async def generate_refresher_quiz_from_llm(subject: str, tough_highlights: list) -> dict:
+    """Generates a targeted refresher quiz focusing on concepts/quotes flagged as 'Tough' by the student."""
+    client = genai.Client(api_key=os.environ.get("GEMINI_API_KEY"))
+
+    quotes_context = ""
+    for i, item in enumerate(tough_highlights):
+        quote = item.get("quoted_text", "")
+        q = item.get("question", "")
+        quotes_context += f"{i+1}. Passage: \"{quote}\" | Student doubt: \"{q}\"\n"
+
+    if not quotes_context:
+        quotes_context = f"General core concepts of {subject}"
+
+    prompt = f"""
+    Create a targeted refresher quiz for {subject} specifically focusing on concepts the student struggled with or flagged as 'Tough':
+
+    Tough Concepts & Passages:
+    {quotes_context}
+
+    Return a JSON object with:
+    "questions": List of 3-5 multiple-choice question objects:
+        - "id": int
+        - "text": question text focusing on the tough concepts
+        - "options": list of 4 options
+        - "correct_option_index": int (0-3)
+
+    Example:
+    {{
+        "questions": [
+           {{"id": 1, "text": "Question about tough concept?", "options": ["A","B","C","D"], "correct_option_index": 0}}
+        ]
+    }}
+    """
+    try:
+        response = client.models.generate_content(
+            model=MODEL,
+            contents=[types.Content(role="user", parts=[types.Part.from_text(text=prompt)])],
+            config=types.GenerateContentConfig(response_mime_type="application/json")
+        )
+        text = response.text.strip()
+        if text.startswith("```json"):
+            text = text[7:]
+        elif text.startswith("```"):
+            text = text[3:]
+        if text.endswith("```"):
+            text = text[:-3]
+        parsed = json.loads(text.strip())
+        if isinstance(parsed, dict) and "questions" in parsed and len(parsed["questions"]) > 0:
+            return parsed
+        elif isinstance(parsed, list) and len(parsed) > 0:
+            return {"questions": parsed}
+    except Exception as e:
+        logger.error(f"Error generating refresher quiz from LLM: {e}")
+
+    return get_fallback_quiz(subject, "refresher")
+
 async def generate_quiz_from_llm(subject: str, difficulty: str, context: str = "") -> dict:
     """Generates an adaptive multiple-choice quiz using Gemini with automatic JSON parsing."""
     client = genai.Client(api_key=os.environ.get("GEMINI_API_KEY"))

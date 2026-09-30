@@ -1,5 +1,7 @@
 import os
 import logging
+import json
+from datetime import datetime, timezone, timedelta
 from bson import ObjectId
 from google import genai
 from google.genai import types
@@ -223,4 +225,67 @@ async def compile_review_sheet(
         "review_items": review_items,
         "markdown_report": markdown_report,
         "created_at": new_report.created_at
+    }
+
+async def get_micro_credential_status(session_id: str, student_id: int, db_session) -> dict:
+    """Calculates living micro-credential status with 3-month expiration countdown and Tough telemetry flags."""
+    from ..models import Certificate, Quiz
+
+    mongo_db = get_mongo_db()
+    subject = "General"
+    highlights = []
+    try:
+        oid = ObjectId(session_id)
+        session = mongo_db.chat_sessions.find_one({"_id": oid})
+        if session:
+            subject = session.get("subject", "General")
+            highlights = session.get("highlights", [])
+    except Exception as e:
+        logger.warning(f"Error fetching session for micro-credential status: {e}")
+
+    # Tough telemetry analysis
+    tough_highlights = [h for h in highlights if h.get("tag") == "Tough"]
+    tough_count = len(tough_highlights)
+    tough_topics = [h.get("quoted_text", "") for h in tough_highlights if h.get("quoted_text")]
+
+    # Check Certificate or Quiz Completion in SQL DB
+    cert = db_session.query(Certificate).filter(
+        Certificate.student_id == student_id,
+        Certificate.session_id == str(session_id)
+    ).first()
+
+    issued_at = None
+    if cert:
+        issued_at = cert.created_at
+    else:
+        # Check if hard quiz was passed
+        hard_quiz = db_session.query(Quiz).filter(
+            Quiz.session_id == str(session_id),
+            Quiz.difficulty == "hard",
+            Quiz.passed == True
+        ).first()
+        if hard_quiz:
+            issued_at = hard_quiz.created_at
+
+    now = datetime.now(timezone.utc)
+    if issued_at:
+        if issued_at.tzinfo is None:
+            issued_at = issued_at.replace(tzinfo=timezone.utc)
+        expires_at = issued_at + timedelta(days=90)  # 3 months renewal cycle
+        days_remaining = max(0, (expires_at - now).days)
+        status = "Active" if days_remaining > 0 else "Renewal Required"
+    else:
+        expires_at = None
+        days_remaining = 0
+        status = "Locked"
+
+    return {
+        "session_id": session_id,
+        "subject": subject,
+        "issued_at": issued_at,
+        "expires_at": expires_at,
+        "days_remaining": days_remaining,
+        "status": status,
+        "tough_count": tough_count,
+        "tough_topics": tough_topics
     }

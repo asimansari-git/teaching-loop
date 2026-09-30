@@ -23,6 +23,7 @@ from .services.ai_service import (
 )
 from .services.quiz_service import (
     generate_quiz_from_llm,
+    generate_refresher_quiz_from_llm,
     evaluate_quiz_from_llm,
     strip_answers,
 )
@@ -30,6 +31,7 @@ from .services.report_service import (
     analyze_performance,
     generate_certificate_content,
     compile_review_sheet,
+    get_micro_credential_status,
 )
 from .database import get_mongo_db
 
@@ -45,10 +47,12 @@ __all__ = [
     "generate_textbook_article",
     "locate_socratic_hint",
     "generate_quiz_from_llm",
+    "generate_refresher_quiz_from_llm",
     "evaluate_quiz_from_llm",
     "strip_answers",
     "analyze_performance",
     "generate_certificate_content",
     "compile_review_sheet",
+    "get_micro_credential_status",
     "get_mongo_db"
 ]

@@ -3,7 +3,8 @@ from ..schemas import (
     UserBase, UserCreate, UserOut, Token, TokenData, OrganizationOut,
     CreateSessionRequest, SessionSummary, SubjectBase, SubjectOut, LearningPlanCreate, QuizCreate, QuizSubmit,
     TextbookGenerateRequest, TextbookArticleOut, SocraticHintRequest, SocraticHintOut,
-    ReportCreate, ReportOut, CertificateCreate, CertificateOut,
+    HighlightCreate, HighlightOut, RefresherQuizRequest,
+    ReportCreate, ReportOut, CertificateCreate, CertificateOut, MicroCredentialOut,
     ReviewHighlightItem, ReviewSheetRequest, ReviewItem, ReviewSheetOut,
     ContentChunkOut, ContentItemOut
 )
@@ -15,7 +16,8 @@ __all__ = [
     "UserBase", "UserCreate", "UserOut", "Token", "TokenData", "OrganizationOut",
     "CreateSessionRequest", "SessionSummary", "SubjectBase", "SubjectOut", "LearningPlanCreate", "QuizCreate", "QuizSubmit",
     "TextbookGenerateRequest", "TextbookArticleOut", "SocraticHintRequest", "SocraticHintOut",
-    "ReportCreate", "ReportOut", "CertificateCreate", "CertificateOut",
+    "HighlightCreate", "HighlightOut", "RefresherQuizRequest",
+    "ReportCreate", "ReportOut", "CertificateCreate", "CertificateOut", "MicroCredentialOut",
     "ReviewHighlightItem", "ReviewSheetRequest", "ReviewItem", "ReviewSheetOut",
     "ContentChunkOut", "ContentItemOut"
 ]
