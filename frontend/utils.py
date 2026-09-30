@@ -364,3 +364,105 @@ def verify_item(item_id, token):
     except Exception as e:
         st.error(f"Error verifying item: {e}")
         return False
+
+def generate_textbook_article(session_id, topic_override, token):
+    headers = {"Authorization": f"Bearer {token}"}
+    try:
+        payload = {"session_id": session_id}
+        if topic_override:
+            payload["topic_override"] = topic_override
+        response = httpx.post(f"{API_URL}/chat/textbook/generate", json=payload, headers=headers, timeout=60.0)
+        if not handle_api_response(response):
+            return None
+        if response.status_code == 200:
+            return response.json()
+        return None
+    except Exception as e:
+        st.error(f"Error generating textbook article: {e}")
+        return None
+
+def get_socratic_hint(session_id, question, article_text, token):
+    headers = {"Authorization": f"Bearer {token}"}
+    try:
+        payload = {"session_id": session_id, "question": question, "article_text": article_text}
+        response = httpx.post(f"{API_URL}/chat/textbook/socratic-hint", json=payload, headers=headers, timeout=60.0)
+        if not handle_api_response(response):
+            return None
+        if response.status_code == 200:
+            return response.json()
+        return None
+    except Exception as e:
+        st.error(f"Error locating socratic hint: {e}")
+        return None
+
+def save_highlight(session_id, element_id, quoted_text, question, tag, token):
+    headers = {"Authorization": f"Bearer {token}"}
+    try:
+        payload = {
+            "element_id": element_id,
+            "quoted_text": quoted_text,
+            "question": question,
+            "tag": tag
+        }
+        response = httpx.post(f"{API_URL}/chat/{session_id}/highlight", json=payload, headers=headers, timeout=30.0)
+        if not handle_api_response(response):
+            return None
+        if response.status_code == 200:
+            return response.json()
+        return None
+    except Exception as e:
+        st.error(f"Error saving highlight: {e}")
+        return None
+
+def get_highlights(session_id, token):
+    headers = {"Authorization": f"Bearer {token}"}
+    try:
+        response = httpx.get(f"{API_URL}/chat/{session_id}/highlights", headers=headers, timeout=30.0)
+        if not handle_api_response(response):
+            return []
+        if response.status_code == 200:
+            return response.json()
+        return []
+    except Exception as e:
+        st.error(f"Error fetching highlights: {e}")
+        return []
+
+def compile_review_sheet(session_id, highlights, token):
+    headers = {"Authorization": f"Bearer {token}"}
+    try:
+        payload = {"session_id": session_id, "highlights": highlights}
+        response = httpx.post(f"{API_URL}/reports/review-sheet", json=payload, headers=headers, timeout=60.0)
+        if not handle_api_response(response):
+            return None
+        if response.status_code == 200:
+            return response.json()
+        return None
+    except Exception as e:
+        st.error(f"Error compiling review sheet: {e}")
+        return None
+
+def get_micro_credential(session_id, token):
+    headers = {"Authorization": f"Bearer {token}"}
+    try:
+        response = httpx.get(f"{API_URL}/reports/micro-credential/{session_id}", headers=headers, timeout=30.0)
+        if not handle_api_response(response):
+            return None
+        if response.status_code == 200:
+            return response.json()
+        return None
+    except Exception as e:
+        st.error(f"Error fetching micro-credential: {e}")
+        return None
+
+def generate_refresher_quiz(session_id, token):
+    headers = {"Authorization": f"Bearer {token}"}
+    try:
+        response = httpx.post(f"{API_URL}/chat/quiz/refresher", json={"session_id": session_id}, headers=headers, timeout=60.0)
+        if not handle_api_response(response):
+            return None
+        if response.status_code == 200:
+            return response.json()
+        return None
+    except Exception as e:
+        st.error(f"Error generating refresher quiz: {e}")
+        return None

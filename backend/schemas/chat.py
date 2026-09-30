@@ -55,3 +55,19 @@ class SocraticHintOut(BaseModel):
     highlight_quote: str
     context_scope: str
     socratic_hint: str
+
+class HighlightCreate(BaseModel):
+    element_id: str
+    quoted_text: str
+    question: Optional[str] = None
+    tag: str = "Note"  # "Tough", "Rewind", "Note", "Ask Doubt", "Hint"
+
+class HighlightOut(BaseModel):
+    element_id: str
+    quoted_text: str
+    question: Optional[str] = None
+    tag: str
+    created_at: datetime
+
+class RefresherQuizRequest(BaseModel):
+    session_id: str

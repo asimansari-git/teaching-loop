@@ -141,6 +141,93 @@ async def generate_textbook_article_endpoint(
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
 
+@router.post("/{session_id}/highlight", response_model=models.HighlightOut)
+async def add_highlight_endpoint(
+    session_id: str,
+    request: models.HighlightCreate,
+    current_user: models.User = Depends(auth.get_current_user),
+    db: Session = Depends(database.get_db)
+):
+    mongo_db = chat_service.get_mongo_db()
+    try:
+        session = mongo_db.chat_sessions.find_one({"_id": ObjectId(session_id)})
+    except Exception:
+        raise HTTPException(status_code=400, detail="Invalid Session ID format")
+
+    verify_session_access(session, current_user, db)
+
+    now_utc = datetime.now(timezone.utc)
+    highlight_doc = {
+        "element_id": request.element_id,
+        "quoted_text": request.quoted_text,
+        "question": request.question or "",
+        "tag": request.tag,
+        "created_at": now_utc
+    }
+
+    mongo_db.chat_sessions.update_one(
+        {"_id": ObjectId(session_id)},
+        {"$push": {"highlights": highlight_doc}}
+    )
+
+    return highlight_doc
+
+@router.get("/{session_id}/highlights", response_model=List[models.HighlightOut])
+async def get_highlights_endpoint(
+    session_id: str,
+    current_user: models.User = Depends(auth.get_current_user),
+    db: Session = Depends(database.get_db)
+):
+    mongo_db = chat_service.get_mongo_db()
+    try:
+        session = mongo_db.chat_sessions.find_one({"_id": ObjectId(session_id)})
+    except Exception:
+        raise HTTPException(status_code=400, detail="Invalid Session ID format")
+
+    verify_session_access(session, current_user, db)
+
+    highlights = session.get("highlights", [])
+    return highlights
+
+@router.post("/quiz/refresher")
+async def generate_refresher_quiz_endpoint(
+    request: models.RefresherQuizRequest,
+    current_user: models.User = Depends(auth.get_current_user),
+    db: Session = Depends(database.get_db)
+):
+    mongo_db = chat_service.get_mongo_db()
+    try:
+        session = mongo_db.chat_sessions.find_one({"_id": ObjectId(request.session_id)})
+    except Exception:
+        raise HTTPException(status_code=400, detail="Invalid Session ID format")
+
+    verify_session_access(session, current_user, db)
+
+    subject = session.get("subject", "General")
+    highlights = session.get("highlights", [])
+    tough_highlights = [h for h in highlights if h.get("tag") == "Tough"]
+
+    quiz_data = await chat_service.generate_refresher_quiz_from_llm(subject, tough_highlights)
+    questions = quiz_data.get("questions") if quiz_data else []
+
+    if not questions:
+        raise HTTPException(status_code=500, detail="Failed to generate refresher quiz questions.")
+
+    new_quiz = models.Quiz(
+        session_id=str(request.session_id),
+        difficulty="refresher",
+        questions=questions
+    )
+    db.add(new_quiz)
+    db.commit()
+    db.refresh(new_quiz)
+
+    client_quiz_data = chat_service.strip_answers(quiz_data)
+    client_quiz_data["db_id"] = new_quiz.id
+    client_quiz_data["difficulty"] = "refresher"
+
+    return client_quiz_data
+
 @router.post("/textbook/socratic-hint", response_model=models.SocraticHintOut)
 async def locate_socratic_hint_endpoint(
     request: models.SocraticHintRequest,

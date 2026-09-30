@@ -53,3 +53,13 @@ class CertificateOut(BaseModel):
     content: str
     created_at: datetime
     model_config = ConfigDict(from_attributes=True)
+
+class MicroCredentialOut(BaseModel):
+    session_id: str
+    subject: str
+    issued_at: Optional[datetime] = None
+    expires_at: Optional[datetime] = None
+    days_remaining: int
+    status: str  # "Active", "Renewal Required", "Locked"
+    tough_count: int
+    tough_topics: List[str]
