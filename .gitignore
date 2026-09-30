@@ -2,10 +2,11 @@
 __pycache__/
 *.db
 *.sqlite3
-*.json
 chroma_db/
 .idea/
 *.bin
 *.pkl
 .notes/
 .agents/
+node_modules/
+dist/
