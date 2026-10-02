@@ -1,4 +1,4 @@
-from fastapi import APIRouter, Depends, HTTPException
+from fastapi import APIRouter, Depends, HTTPException, BackgroundTasks
 from .. import auth, models, chat_service, database
 from sqlalchemy.orm import Session
 from typing import List, Optional
@@ -28,10 +28,34 @@ def verify_session_access(session: dict, current_user: models.User, db: Session)
     else:
         raise HTTPException(status_code=403, detail="Invalid user role")
 
+async def _generate_and_save_learning_plan(session_id: str, subject: str, topics: list):
+    try:
+        plan_data = await chat_service.generate_learning_plan_from_llm(subject, topics)
+        if plan_data and plan_data.get("modules"):
+            mongo_db = chat_service.get_mongo_db()
+            mongo_db.chat_sessions.update_one(
+                {"_id": ObjectId(session_id)},
+                {"$set": {"learning_plan": plan_data}}
+            )
+    except Exception as e:
+        import logging
+        logging.getLogger("teaching_platform.chat").warning(f"Background plan generation failed: {e}")
+
 @router.post("/start")
-async def start_session(request: models.CreateSessionRequest, current_user: models.User = Depends(auth.get_current_user)):
+async def start_session(
+    request: models.CreateSessionRequest,
+    background_tasks: BackgroundTasks,
+    current_user: models.User = Depends(auth.get_current_user)
+):
     session_id = chat_service.create_session(
         username=current_user.username,
+        subject=request.subject,
+        topics=request.topics
+    )
+    # Eagerly generate learning path in background so it's ready immediately
+    background_tasks.add_task(
+        _generate_and_save_learning_plan,
+        session_id=session_id,
         subject=request.subject,
         topics=request.topics
     )
@@ -114,6 +138,16 @@ async def generate_textbook_article_endpoint(
     subject = session.get("subject", "General")
     topics = session.get("topics", [])
 
+    if not request.topic_override and session.get("textbook_article"):
+        cached = session["textbook_article"]
+        return {
+            "session_id": request.session_id,
+            "title": cached.get("title", subject),
+            "topics": cached.get("topics", topics),
+            "markdown_content": cached.get("markdown_content", ""),
+            "generated_at": cached.get("generated_at")
+        }
+
     try:
         article_result = await chat_service.generate_textbook_article(
             subject=subject,
@@ -188,6 +222,31 @@ async def get_highlights_endpoint(
 
     highlights = session.get("highlights", [])
     return highlights
+
+@router.delete("/{session_id}/highlight/{index}")
+async def delete_highlight_endpoint(
+    session_id: str,
+    index: int,
+    current_user: models.User = Depends(auth.get_current_user),
+    db: Session = Depends(database.get_db)
+):
+    mongo_db = chat_service.get_mongo_db()
+    try:
+        session = mongo_db.chat_sessions.find_one({"_id": ObjectId(session_id)})
+    except Exception:
+        raise HTTPException(status_code=400, detail="Invalid Session ID format")
+
+    verify_session_access(session, current_user, db)
+
+    highlights = session.get("highlights", [])
+    if 0 <= index < len(highlights):
+        highlights.pop(index)
+        mongo_db.chat_sessions.update_one(
+            {"_id": ObjectId(session_id)},
+            {"$set": {"highlights": highlights}}
+        )
+        return {"status": "success", "remaining_count": len(highlights)}
+    raise HTTPException(status_code=404, detail="Highlight index not found")
 
 @router.post("/quiz/refresher")
 async def generate_refresher_quiz_endpoint(
@@ -275,7 +334,11 @@ async def create_learning_plan(
 
     subject = session.get("subject", "General")
     topics = session.get("topics", [])
-    
+
+    existing_plan = session.get("learning_plan")
+    if existing_plan and isinstance(existing_plan, dict) and existing_plan.get("modules"):
+        return existing_plan
+
     try:
         plan_data = await chat_service.generate_learning_plan_from_llm(subject, topics)
         mongo_db.chat_sessions.update_one(
@@ -430,8 +493,33 @@ async def get_history(
             filtered_messages.append(msg)
         messages = filtered_messages
 
+    normalized_messages = []
+    for msg in messages:
+        m = dict(msg)
+        if "content" not in m or not m["content"]:
+            parts = m.get("parts", [])
+            if isinstance(parts, list) and len(parts) > 0:
+                m["content"] = str(parts[0])
+            elif isinstance(parts, str):
+                m["content"] = parts
+            else:
+                m["content"] = ""
+        # Map timestamp to ISO string if datetime
+        if isinstance(m.get("timestamp"), datetime):
+            m["timestamp"] = m["timestamp"].isoformat()
+        normalized_messages.append(m)
+
+    subject = session.get("subject", "General")
+    topics = session.get("topics", [])
+    title = session.get("title")
+    if not title:
+        title = f"{subject} - {', '.join(topics)}" if topics else f"{subject} - General"
+
     return {
-        "messages": messages,
+        "messages": normalized_messages,
         "learning_plan": session.get("learning_plan", {}),
-        "subject": session.get("subject", "General")
+        "highlights": session.get("highlights", []),
+        "subject": subject,
+        "topics": topics,
+        "title": title
     }

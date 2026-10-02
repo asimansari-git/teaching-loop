@@ -1,6 +1,7 @@
 import { useState, useRef, useEffect } from 'react'
 import ReactMarkdown from 'react-markdown'
 import remarkGfm from 'remark-gfm'
+import rehypeRaw from 'rehype-raw'
 import { Button } from '@/components/ui/button'
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '@/components/ui/card'
 import { Badge } from '@/components/ui/badge'
@@ -30,7 +31,6 @@ export function SocraticReader({
 }: SocraticReaderProps) {
   const [selectedText, setSelectedText] = useState<string>('')
   const [selectionPosition, setSelectionPosition] = useState<{ top: number; left: number } | null>(null)
-  const [fontSize, setFontSize] = useState<'normal' | 'large' | 'xlarge'>('normal')
   const contentRef = useRef<HTMLDivElement>(null)
 
   useEffect(() => {
@@ -63,70 +63,43 @@ export function SocraticReader({
     return () => document.removeEventListener('selectionchange', handleSelectionChange)
   }, [])
 
-  const fontSizeClasses = {
-    normal: 'prose-base',
-    large: 'prose-lg',
-    xlarge: 'prose-xl',
-  }
-
   return (
-    <div className="relative flex-1 h-full overflow-y-auto p-4 md:p-8 bg-background">
+    <div className="relative flex-1 h-full overflow-y-auto bg-background">
       {/* Floating Header Bar for Reader */}
-      <div className="flex flex-wrap items-center justify-between gap-3 mb-6 pb-4 border-b border-border">
-        <div>
-          <div className="flex items-center gap-2">
-            <BookOpen className="h-5 w-5 text-primary" />
-            <h1 className="text-xl font-bold tracking-tight text-foreground">
+      <div className="flex flex-wrap items-center justify-between px-4 md:px-6 py-2.5 border-b gap-3">
+        <div className="flex items-center gap-2.5">
+          <BookOpen className="h-5 w-5 text-primary" />
+          <div>
+            <h2 className="font-semibold text-sm leading-tight text-foreground">
               {article ? article.title : sessionSubject || 'Socratic Reader'}
-            </h1>
+            </h2>
+            {article?.topics && article.topics.length > 0 && (
+              <div className="flex flex-wrap gap-1 mt-0.5">
+                {article.topics.map((t, idx) => (
+                  <Badge key={idx} variant="outline" className="text-[10px] px-1.5 py-0">
+                    {t}
+                  </Badge>
+                ))}
+              </div>
+            )}
           </div>
-          {article?.topics && article.topics.length > 0 && (
-            <div className="flex flex-wrap gap-1.5 mt-2">
-              {article.topics.map((t, idx) => (
-                <Badge key={idx} variant="outline" className="text-xs">
-                  {t}
-                </Badge>
-              ))}
-            </div>
-          )}
         </div>
 
         <div className="flex items-center gap-2">
-          <div className="flex items-center border rounded-lg bg-muted p-0.5 text-xs">
-            <button
-              onClick={() => setFontSize('normal')}
-              className={`px-2 py-1 rounded-md ${fontSize === 'normal' ? 'bg-background shadow-xs font-semibold' : 'text-muted-foreground'}`}
-            >
-              A
-            </button>
-            <button
-              onClick={() => setFontSize('large')}
-              className={`px-2 py-1 rounded-md ${fontSize === 'large' ? 'bg-background shadow-xs font-semibold' : 'text-muted-foreground'}`}
-            >
-              A+
-            </button>
-            <button
-              onClick={() => setFontSize('xlarge')}
-              className={`px-2 py-1 rounded-md ${fontSize === 'xlarge' ? 'bg-background shadow-xs font-semibold' : 'text-muted-foreground'}`}
-            >
-              A++
-            </button>
-          </div>
-
-          <Button variant="outline" size="sm" onClick={onGenerateArticle} disabled={loading}>
+          <Button variant="outline" size="sm" onClick={onGenerateArticle} disabled={loading} className="text-xs">
             <RefreshCw className={`h-3.5 w-3.5 mr-1.5 ${loading ? 'animate-spin' : ''}`} />
             {article ? 'Regenerate' : 'Generate Article'}
           </Button>
 
           {onOpenQuizModal && (
-            <Button variant="secondary" size="sm" onClick={onOpenQuizModal}>
+            <Button variant="secondary" size="sm" onClick={onOpenQuizModal} className="text-xs">
               <CheckCircle2 className="h-3.5 w-3.5 mr-1.5 text-emerald-500" />
               Quiz
             </Button>
           )}
 
           {onGenerateCertificate && (
-            <Button variant="outline" size="sm" onClick={onGenerateCertificate}>
+            <Button variant="outline" size="sm" onClick={onGenerateCertificate} className="text-xs">
               <Award className="h-3.5 w-3.5 mr-1.5 text-amber-500" />
               Certificate
             </Button>
@@ -135,7 +108,7 @@ export function SocraticReader({
       </div>
 
       {/* Main Socratic Content Container */}
-      <div ref={contentRef} className="relative min-h-[500px]">
+      <div ref={contentRef} className="relative min-h-[500px] p-4 md:p-8">
         {/* Floating Selection Action Popup */}
         {selectionPosition && selectedText && (
           <div
@@ -178,8 +151,8 @@ export function SocraticReader({
             </p>
           </div>
         ) : article?.markdown_content ? (
-          <article className={`prose dark:prose-invert max-w-none ${fontSizeClasses[fontSize]} leading-relaxed`}>
-            <ReactMarkdown remarkPlugins={[remarkGfm]}>
+          <article className="prose prose-base dark:prose-invert max-w-none leading-relaxed text-foreground prose-headings:text-foreground prose-p:text-foreground prose-strong:text-foreground">
+            <ReactMarkdown remarkPlugins={[remarkGfm]} rehypePlugins={[rehypeRaw]}>
               {article.markdown_content}
             </ReactMarkdown>
           </article>

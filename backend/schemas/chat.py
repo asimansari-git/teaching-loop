@@ -11,6 +11,7 @@ class SessionSummary(BaseModel):
     title: str
     created_at: datetime
     subject: str
+    topics: List[str] = []
 
 class SubjectBase(BaseModel):
     name: str
@@ -22,7 +23,7 @@ class SubjectOut(SubjectBase):
 
 class LearningPlanCreate(BaseModel):
     session_id: str
-    plan_content: dict
+    plan_content: Optional[Dict[str, Any]] = None
 
 class QuizCreate(BaseModel):
     session_id: str
@@ -57,16 +58,16 @@ class SocraticHintOut(BaseModel):
     socratic_hint: str
 
 class HighlightCreate(BaseModel):
-    element_id: str
+    element_id: Optional[str] = "selection"
     quoted_text: str
     question: Optional[str] = None
     tag: str = "Note"  # "Tough", "Rewind", "Note", "Ask Doubt", "Hint"
 
 class HighlightOut(BaseModel):
-    element_id: str
+    element_id: Optional[str] = "selection"
     quoted_text: str
     question: Optional[str] = None
-    tag: str
+    tag: str = "Note"
     created_at: datetime
 
 class RefresherQuizRequest(BaseModel):

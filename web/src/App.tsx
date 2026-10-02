@@ -5,6 +5,7 @@ import { Navbar } from '@/components/navbar'
 import { AuthView } from '@/components/auth-view'
 import { Workspace } from '@/components/workspace'
 import { TeacherDashboard } from '@/components/teacher-dashboard'
+import { SessionExpiredModal } from '@/components/session-expired-modal'
 import { Loader2 } from 'lucide-react'
 
 function MainContent() {
@@ -33,6 +34,7 @@ function MainContent() {
           <Workspace />
         )}
       </main>
+      <SessionExpiredModal />
     </div>
   )
 }

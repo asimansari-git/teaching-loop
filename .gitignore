@@ -10,3 +10,7 @@ chroma_db/
 .agents/
 node_modules/
 dist/
+HANDOVER.md
+AGENTS.md
+.teaching-loop/
+chat_history.json

@@ -1,64 +1,53 @@
-import { useState, useRef, useEffect } from 'react'
+import { useState } from 'react'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
-import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
+import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '@/components/ui/card'
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs'
 import { Badge } from '@/components/ui/badge'
 import {
-  MessageSquare,
-  Send,
+  MapPin,
   Sparkles,
-  Bot,
-  User as UserIcon,
-  HelpCircle,
   FileText,
   Trash2,
   ListCheck,
   ChevronRight,
   Loader2,
+  Compass,
+  CheckCircle2,
+  Search,
+  MessageSquare,
 } from 'lucide-react'
-import ReactMarkdown from 'react-markdown'
-import remarkGfm from 'remark-gfm'
-import type { ChatMessage, ReviewSheet } from '@/api/client'
+import type { ReviewSheet, LearningPlan, LearningModule } from '@/api/client'
 
 interface CompanionTutorDrawerProps {
-  messages: ChatMessage[]
-  sending: boolean
-  onSendMessage: (msg: string) => void
+  learningPlan: LearningPlan | null
+  loadingPlan: boolean
+  onGenerateLearningPlan?: () => void
+  onDiscussTopic?: (topic: string) => void
   onGetSocraticHint: (question: string) => void
   highlights: Array<{ text: string; note?: string; section?: string }>
   onRemoveHighlight: (index: number) => void
   onCompileReviewSheet: () => void
   reviewSheet: ReviewSheet | null
   compilingSheet: boolean
+  sessionSubject: string
 }
 
 export function CompanionTutorDrawer({
-  messages,
-  sending,
-  onSendMessage,
+  learningPlan,
+  loadingPlan,
+  onGenerateLearningPlan,
+  onDiscussTopic,
   onGetSocraticHint,
   highlights,
   onRemoveHighlight,
   onCompileReviewSheet,
   reviewSheet,
   compilingSheet,
+  sessionSubject,
 }: CompanionTutorDrawerProps) {
-  const [inputMsg, setInputMsg] = useState('')
   const [hintQuestion, setHintQuestion] = useState('')
-  const [activeTab, setActiveTab] = useState<'chat' | 'highlights' | 'summary'>('chat')
-  const messagesEndRef = useRef<HTMLDivElement>(null)
-
-  useEffect(() => {
-    messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' })
-  }, [messages, sending])
-
-  const handleSend = (e: React.FormEvent) => {
-    e.preventDefault()
-    if (!inputMsg.trim() || sending) return
-    onSendMessage(inputMsg.trim())
-    setInputMsg('')
-  }
+  const [activeTab, setActiveTab] = useState<'path' | 'highlights' | 'summary'>('path')
 
   const handleHintSubmit = (e: React.FormEvent) => {
     e.preventDefault()
@@ -67,224 +56,258 @@ export function CompanionTutorDrawer({
     setHintQuestion('')
   }
 
+  const modules: LearningModule[] = learningPlan?.modules || []
+
   return (
-    <div className="h-full flex flex-col bg-card border-l border-border">
-      {/* Drawer Header */}
-      <div className="p-4 border-b border-border flex items-center justify-between bg-muted/30">
-        <div className="flex items-center gap-2 font-semibold">
-          <Bot className="h-5 w-5 text-primary" />
-          <span>Socratic Companion</span>
+    <div className="flex flex-col h-full bg-card/50 border-l border-border">
+      {/* Drawer Header with Inverted Retrieval Socratic Locator */}
+      <div className="p-3.5 border-b bg-muted/20 shrink-0 space-y-2.5">
+        <div className="flex items-center justify-between">
+          <div className="flex items-center gap-2">
+            <Compass className="h-4 w-4 text-primary" />
+            <h3 className="font-semibold text-sm">Socratic Companion</h3>
+          </div>
+          <Badge variant="outline" className="text-[10px] uppercase font-bold tracking-wider px-1.5 py-0.5">
+            Path & Insights
+          </Badge>
         </div>
-        <Badge variant="secondary" className="text-xs">
-          Live AI Assistant
-        </Badge>
+
+        {/* Quick Socratic Hint Inverted Retrieval Search */}
+        <form onSubmit={handleHintSubmit} className="flex gap-1.5">
+          <div className="relative flex-1">
+            <Search className="absolute left-2.5 top-2.5 h-3.5 w-3.5 text-muted-foreground" />
+            <Input
+              value={hintQuestion}
+              onChange={(e) => setHintQuestion(e.target.value)}
+              placeholder="Ask Socratic Hint (e.g. Where is...)"
+              className="h-8 text-xs pl-8 bg-background shadow-2xs"
+            />
+          </div>
+          <Button type="submit" size="sm" variant="secondary" className="h-8 text-xs shrink-0 px-2.5">
+            Find Hint
+          </Button>
+        </form>
       </div>
 
-      <Tabs value={activeTab} onValueChange={(v) => setActiveTab(v as any)} className="flex-1 flex flex-col min-h-0">
-        <div className="px-4 pt-2 border-b border-border bg-muted/10">
-          <TabsList className="grid w-full grid-cols-3">
-            <TabsTrigger value="chat" className="text-xs">
-              <MessageSquare className="h-3.5 w-3.5 mr-1" />
-              Tutor
+      {/* Tabs Switcher: Learning Path, Highlights, Review Sheet */}
+      <Tabs
+        value={activeTab}
+        onValueChange={(val) => setActiveTab(val as 'path' | 'highlights' | 'summary')}
+        className="flex-1 flex flex-col min-h-0"
+      >
+        <div className="px-3.5 pt-2.5 border-b shrink-0 bg-muted/10">
+          <TabsList className="grid grid-cols-3 h-8 text-xs w-full">
+            <TabsTrigger value="path" className="text-xs gap-1.5">
+              <MapPin className="h-3.5 w-3.5" /> Path
             </TabsTrigger>
-            <TabsTrigger value="highlights" className="text-xs">
-              <Sparkles className="h-3.5 w-3.5 mr-1" />
-              Highlights ({highlights.length})
+            <TabsTrigger value="highlights" className="text-xs gap-1.5">
+              <Sparkles className="h-3.5 w-3.5 text-amber-500" /> Highlights ({highlights.length})
             </TabsTrigger>
-            <TabsTrigger value="summary" className="text-xs">
-              <FileText className="h-3.5 w-3.5 mr-1" />
-              Summary
+            <TabsTrigger value="summary" className="text-xs gap-1.5">
+              <FileText className="h-3.5 w-3.5" /> Summary
             </TabsTrigger>
           </TabsList>
         </div>
 
-        {/* Tab 1: Live Socratic Chat */}
-        <TabsContent value="chat" className="flex-1 flex flex-col p-0 m-0 min-h-0">
-          {/* Socratic Hint Quick Box */}
-          <div className="p-3 bg-primary/5 border-b border-border">
-            <form onSubmit={handleHintSubmit} className="flex gap-2">
-              <Input
-                placeholder="Ask Socratic Hint (e.g., Where does it talk about...?)"
-                value={hintQuestion}
-                onChange={(e) => setHintQuestion(e.target.value)}
-                className="text-xs h-8"
-              />
-              <Button type="submit" size="sm" variant="outline" className="h-8 text-xs shrink-0">
-                <HelpCircle className="h-3.5 w-3.5 mr-1 text-primary" />
-                Find Hint
-              </Button>
-            </form>
-          </div>
-
-          {/* Messages Stream */}
-          <div className="flex-1 overflow-y-auto p-4 space-y-4">
-            {messages.length === 0 ? (
-              <div className="text-center py-12 text-muted-foreground text-xs space-y-2">
-                <Bot className="h-8 w-8 mx-auto opacity-40" />
-                <p>No messages yet. Ask the Socratic Tutor a question to begin guided learning.</p>
-              </div>
-            ) : (
-              messages.map((msg, idx) => {
-                const isUser = msg.role === 'user'
-                return (
-                  <div
-                    key={idx}
-                    className={`flex items-start gap-2.5 ${isUser ? 'flex-row-reverse' : 'flex-row'}`}
+        {/* Tab 1: The Interactive Learning Path */}
+        <TabsContent value="path" className="flex-1 overflow-y-auto p-3.5 m-0 space-y-3">
+          {loadingPlan ? (
+            <div className="flex flex-col items-center justify-center h-48 space-y-3 text-center">
+              <Loader2 className="h-6 w-6 animate-spin text-primary" />
+              <p className="text-xs text-muted-foreground">Architecting customized learning roadmap...</p>
+            </div>
+          ) : modules.length > 0 ? (
+            <div className="space-y-3">
+              <div className="flex items-center justify-between text-xs text-muted-foreground px-0.5">
+                <span>{modules.length} Modules in Sequence</span>
+                {onGenerateLearningPlan && (
+                  <button
+                    onClick={onGenerateLearningPlan}
+                    className="text-primary hover:underline text-[11px] cursor-pointer"
                   >
-                    <div
-                      className={`flex h-7 w-7 shrink-0 select-none items-center justify-center rounded-full text-xs font-semibold ${
-                        isUser ? 'bg-primary text-primary-foreground' : 'bg-muted text-foreground'
-                      }`}
-                    >
-                      {isUser ? <UserIcon className="h-3.5 w-3.5" /> : <Bot className="h-3.5 w-3.5 text-primary" />}
-                    </div>
-                    <div
-                      className={`rounded-lg px-3.5 py-2.5 text-xs max-w-[85%] leading-relaxed ${
-                        isUser
-                          ? 'bg-primary text-primary-foreground'
-                          : 'bg-muted/70 text-foreground border border-border/50'
-                      }`}
-                    >
-                      {isUser ? (
-                        msg.content
-                      ) : (
-                        <div className="prose dark:prose-invert prose-xs max-w-none">
-                          <ReactMarkdown remarkPlugins={[remarkGfm]}>{msg.content}</ReactMarkdown>
-                        </div>
-                      )}
-                    </div>
-                  </div>
-                )
-              })
-            )}
-
-            {sending && (
-              <div className="flex items-center gap-2 text-xs text-muted-foreground p-2 animate-pulse">
-                <Bot className="h-4 w-4 animate-bounce text-primary" />
-                <span>Socratic AI is thinking...</span>
+                    Refresh Path
+                  </button>
+                )}
               </div>
-            )}
-            <div ref={messagesEndRef} />
-          </div>
 
-          {/* Chat Input Bar */}
-          <form onSubmit={handleSend} className="p-3 border-t border-border bg-background flex gap-2">
-            <Input
-              placeholder="Ask a question..."
-              value={inputMsg}
-              onChange={(e) => setInputMsg(e.target.value)}
-              disabled={sending}
-              className="text-xs"
-            />
-            <Button type="submit" size="sm" disabled={sending || !inputMsg.trim()} className="shrink-0">
-              <Send className="h-3.5 w-3.5" />
-            </Button>
-          </form>
+              {modules.map((mod, idx) => (
+                <Card
+                  key={idx}
+                  className="border transition-all hover:border-primary/40 hover:shadow-xs group overflow-hidden"
+                >
+                  <CardHeader className="p-3 pb-2 space-y-1">
+                    <div className="flex items-start justify-between gap-2">
+                      <div className="flex items-center gap-2">
+                        <span className="flex items-center justify-center w-5 h-5 rounded-full bg-primary/10 text-primary text-[11px] font-bold shrink-0">
+                          {idx + 1}
+                        </span>
+                        <CardTitle className="text-xs font-semibold leading-tight line-clamp-1">
+                          {mod.title}
+                        </CardTitle>
+                      </div>
+                    </div>
+                    {mod.description && (
+                      <CardDescription className="text-[11px] leading-relaxed text-muted-foreground pl-7 line-clamp-2">
+                        {mod.description}
+                      </CardDescription>
+                    )}
+                  </CardHeader>
+
+                  <CardContent className="p-3 pt-0 pl-7 space-y-2">
+                    {mod.topics && mod.topics.length > 0 && (
+                      <div className="flex flex-wrap gap-1">
+                        {mod.topics.map((t, tIdx) => (
+                          <Badge
+                            key={tIdx}
+                            variant="secondary"
+                            className="text-[10px] px-1.5 py-0 bg-muted/60 font-normal hover:bg-primary/10 hover:text-primary transition-colors cursor-pointer"
+                            onClick={() => onDiscussTopic?.(`Let's explore topic: "${t}" from Module ${idx + 1}: ${mod.title}`)}
+                          >
+                            {t}
+                          </Badge>
+                        ))}
+                      </div>
+                    )}
+
+                    {onDiscussTopic && (
+                      <Button
+                        size="sm"
+                        variant="ghost"
+                        className="w-full h-6 text-[11px] text-primary justify-between px-2 hover:bg-primary/10"
+                        onClick={() =>
+                          onDiscussTopic(
+                            `Please guide me through Module ${idx + 1}: "${mod.title}". What are the first principles I need to know?`
+                          )
+                        }
+                      >
+                        <span className="flex items-center gap-1">
+                          <MessageSquare className="h-3 w-3" /> Discuss with Tutor
+                        </span>
+                        <ChevronRight className="h-3 w-3 text-muted-foreground group-hover:translate-x-0.5 transition-transform" />
+                      </Button>
+                    )}
+                  </CardContent>
+                </Card>
+              ))}
+            </div>
+          ) : (
+            <Card className="border-dashed border-2 bg-muted/10 my-4 text-center p-5 space-y-3">
+              <div className="p-2.5 rounded-full bg-primary/10 text-primary w-fit mx-auto">
+                <MapPin className="h-5 w-5" />
+              </div>
+              <div className="space-y-1">
+                <h4 className="text-xs font-semibold">No Learning Path Generated</h4>
+                <p className="text-[11px] text-muted-foreground">
+                  Build a structured roadmap covering prerequisite concepts and core modules for {sessionSubject}.
+                </p>
+              </div>
+              {onGenerateLearningPlan && (
+                <Button size="sm" onClick={onGenerateLearningPlan} className="text-xs h-7 gap-1">
+                  <Sparkles className="h-3.5 w-3.5" />
+                  Generate Learning Path
+                </Button>
+              )}
+            </Card>
+          )}
         </TabsContent>
 
-        {/* Tab 2: Saved Highlights */}
-        <TabsContent value="highlights" className="flex-1 flex flex-col p-4 m-0 min-h-0 overflow-y-auto space-y-4">
-          <div className="flex items-center justify-between">
-            <h3 className="text-sm font-semibold">Reader Highlights</h3>
+        {/* Tab 2: Reader Highlights & Excerpts */}
+        <TabsContent value="highlights" className="flex-1 overflow-y-auto p-3.5 m-0 space-y-3">
+          <div className="flex items-center justify-between text-xs text-muted-foreground">
+            <span>Reader Highlights</span>
             <Button
               size="sm"
+              variant="outline"
+              className="h-6 text-[11px]"
               onClick={onCompileReviewSheet}
-              disabled={compilingSheet || highlights.length === 0}
+              disabled={highlights.length === 0 || compilingSheet}
             >
               {compilingSheet ? (
                 <>
-                  <Loader2 className="mr-1.5 h-3.5 w-3.5 animate-spin" /> Compiling...
+                  <Loader2 className="h-3 w-3 animate-spin mr-1" /> Compiling...
                 </>
               ) : (
                 <>
-                  <ListCheck className="mr-1.5 h-3.5 w-3.5" /> Compile Review Sheet
+                  <ListCheck className="h-3 w-3 mr-1 text-emerald-500" /> Compile Review Sheet
                 </>
               )}
             </Button>
           </div>
 
           {highlights.length === 0 ? (
-            <Card className="border-dashed bg-muted/20">
-              <CardContent className="p-6 text-center text-xs text-muted-foreground">
-                Highlight text in the primary Socratic Reader to save excerpts and generate batch review sheets.
-              </CardContent>
-            </Card>
+            <div className="flex flex-col items-center justify-center h-48 text-center text-xs text-muted-foreground space-y-2 p-4">
+              <Sparkles className="h-8 w-8 text-muted/50" />
+              <p>Highlight text in the textbook reader to save excerpts and generate batch review sheets.</p>
+            </div>
           ) : (
-            <div className="space-y-2.5">
-              {highlights.map((h, idx) => (
-                <Card key={idx} className="relative group p-3 text-xs bg-muted/40">
-                  <p className="italic text-foreground border-l-2 border-primary pl-2.5 my-1">
-                    "{h.text}"
-                  </p>
+            highlights.map((hl, idx) => (
+              <Card key={idx} className="p-2.5 text-xs space-y-1.5 relative group border bg-card">
+                <p className="italic text-foreground border-l-2 border-amber-500 pl-2 text-xs">
+                  "{hl.text}"
+                </p>
+                {hl.note && <p className="text-muted-foreground text-[11px] pl-2">{hl.note}</p>}
+                <div className="flex justify-between items-center pt-1 border-t text-[10px] text-muted-foreground">
+                  <span>{hl.section || 'Text Selection'}</span>
                   <Button
-                    size="icon"
                     variant="ghost"
-                    className="absolute top-2 right-2 h-6 w-6 opacity-0 group-hover:opacity-100 transition-opacity text-destructive hover:bg-destructive/10"
+                    size="icon"
+                    className="h-5 w-5 text-muted-foreground hover:text-destructive cursor-pointer"
                     onClick={() => onRemoveHighlight(idx)}
                   >
-                    <Trash2 className="h-3.5 w-3.5" />
+                    <Trash2 className="h-3 w-3" />
                   </Button>
-                </Card>
-              ))}
-            </div>
+                </div>
+              </Card>
+            ))
           )}
         </TabsContent>
 
-        {/* Tab 3: Review Sheet & Batch Summary */}
-        <TabsContent value="summary" className="flex-1 flex flex-col p-4 m-0 min-h-0 overflow-y-auto space-y-4">
+        {/* Tab 3: Compiled Review Sheet */}
+        <TabsContent value="summary" className="flex-1 overflow-y-auto p-3.5 m-0 space-y-3">
           {reviewSheet ? (
             <div className="space-y-4 text-xs">
-              <Card>
-                <CardHeader className="p-4 pb-2">
-                  <CardTitle className="text-sm font-bold flex items-center gap-2">
-                    <FileText className="h-4 w-4 text-primary" /> Socratic Summary
-                  </CardTitle>
-                </CardHeader>
-                <CardContent className="p-4 pt-0 leading-relaxed text-muted-foreground">
-                  {reviewSheet.summary}
-                </CardContent>
-              </Card>
+              <div className="p-3 bg-muted/40 rounded-lg space-y-1.5 border">
+                <h4 className="font-semibold text-xs text-primary flex items-center gap-1.5">
+                  <FileText className="h-3.5 w-3.5" /> Session Synthesis
+                </h4>
+                <p className="text-muted-foreground leading-relaxed text-[11px]">{reviewSheet.summary}</p>
+              </div>
 
               {reviewSheet.key_points && reviewSheet.key_points.length > 0 && (
-                <Card>
-                  <CardHeader className="p-4 pb-2">
-                    <CardTitle className="text-sm font-bold">Key Takeaways</CardTitle>
-                  </CardHeader>
-                  <CardContent className="p-4 pt-0 space-y-1.5">
-                    {reviewSheet.key_points.map((kp, idx) => (
-                      <div key={idx} className="flex items-start gap-2">
-                        <ChevronRight className="h-3.5 w-3.5 text-primary shrink-0 mt-0.5" />
-                        <span>{kp}</span>
-                      </div>
+                <div className="space-y-1.5">
+                  <h4 className="font-semibold text-xs flex items-center gap-1.5 text-emerald-500">
+                    <CheckCircle2 className="h-3.5 w-3.5" /> Key Principles
+                  </h4>
+                  <ul className="space-y-1 pl-4 list-disc text-muted-foreground text-[11px]">
+                    {reviewSheet.key_points.map((pt, i) => (
+                      <li key={i}>{pt}</li>
                     ))}
-                  </CardContent>
-                </Card>
+                  </ul>
+                </div>
               )}
 
               {reviewSheet.action_items && reviewSheet.action_items.length > 0 && (
-                <Card>
-                  <CardHeader className="p-4 pb-2">
-                    <CardTitle className="text-sm font-bold">Recommended Action Items</CardTitle>
-                  </CardHeader>
-                  <CardContent className="p-4 pt-0 space-y-1.5">
-                    {reviewSheet.action_items.map((ai, idx) => (
-                      <div key={idx} className="flex items-start gap-2">
-                        <Badge variant="outline" className="text-[10px] shrink-0">
-                          Step {idx + 1}
-                        </Badge>
-                        <span>{ai}</span>
-                      </div>
+                <div className="space-y-1.5">
+                  <h4 className="font-semibold text-xs flex items-center gap-1.5 text-amber-500">
+                    <Sparkles className="h-3.5 w-3.5" /> Recommended Next Steps
+                  </h4>
+                  <ul className="space-y-1 pl-4 list-disc text-muted-foreground text-[11px]">
+                    {reviewSheet.action_items.map((act, i) => (
+                      <li key={i}>{act}</li>
                     ))}
-                  </CardContent>
-                </Card>
+                  </ul>
+                </div>
               )}
+
+              <p className="text-[10px] text-muted-foreground text-center pt-2">
+                Compiled at {new Date(reviewSheet.compiled_at).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
+              </p>
             </div>
           ) : (
-            <Card className="border-dashed bg-muted/20">
-              <CardContent className="p-6 text-center text-xs text-muted-foreground">
-                No review summary compiled yet. Add highlights and click 'Compile Review Sheet' to generate key takeaways and action items.
-              </CardContent>
-            </Card>
+            <div className="flex flex-col items-center justify-center h-48 text-center text-xs text-muted-foreground space-y-2 p-4">
+              <FileText className="h-8 w-8 text-muted/50" />
+              <p>No review summary compiled yet. Add highlights in the Reader and click "Compile Review Sheet".</p>
+            </div>
           )}
         </TabsContent>
       </Tabs>
