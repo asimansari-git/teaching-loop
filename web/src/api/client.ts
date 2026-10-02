@@ -16,10 +16,18 @@ export interface Organization {
 
 export interface SessionSummary {
   id: string
+  session_id?: string
+  title: string
   subject: string
   topics: string[]
   created_at?: string
   last_updated?: string
+}
+
+export interface SubjectItem {
+  id: number
+  name: string
+  topics: string[]
 }
 
 export interface ChatMessage {
@@ -55,6 +63,16 @@ export interface ReviewSheet {
   compiled_at: string
 }
 
+export interface LearningModule {
+  title: string
+  description: string
+  topics: string[]
+}
+
+export interface LearningPlan {
+  modules: LearningModule[]
+}
+
 export class ApiError extends Error {
   status: number
   constructor(message: string, status: number) {
@@ -73,9 +91,18 @@ async function handleResponse<T>(response: Response): Promise<T> {
     let errorDetail = 'An unexpected error occurred'
     try {
       const errorData = await response.json()
-      errorDetail = errorData.detail || errorDetail
+      if (typeof errorData.detail === 'string') {
+        errorDetail = errorData.detail
+      } else if (Array.isArray(errorData.detail)) {
+        errorDetail = errorData.detail.map((e: any) => e.msg || JSON.stringify(e)).join(', ')
+      } else if (errorData.detail) {
+        errorDetail = typeof errorData.detail === 'object' ? JSON.stringify(errorData.detail) : String(errorData.detail)
+      }
     } catch {
       // ignore json parse error
+    }
+    if (response.status === 401 && typeof window !== 'undefined') {
+      window.dispatchEvent(new CustomEvent('socratic:unauthorized', { detail: { message: errorDetail } }))
     }
     throw new ApiError(errorDetail, response.status)
   }
@@ -129,7 +156,32 @@ export const api = {
     const res = await fetch(`${BASE_URL}/chat/sessions`, {
       headers: getAuthHeader(),
     })
-    return handleResponse<SessionSummary[]>(res)
+    const rawSessions = await handleResponse<any[]>(res)
+    return rawSessions.map((s) => ({
+      id: s.id || s.session_id,
+      session_id: s.session_id || s.id,
+      title: s.title || (s.topics?.length ? `${s.subject} - ${s.topics.join(', ')}` : `${s.subject || 'General'}`),
+      subject: s.subject || 'General',
+      topics: s.topics || [],
+      created_at: s.created_at,
+      last_updated: s.last_updated,
+    }))
+  },
+
+  async getSubjects(): Promise<SubjectItem[]> {
+    const res = await fetch(`${BASE_URL}/chat/subjects`, {
+      headers: getAuthHeader(),
+    })
+    return handleResponse<SubjectItem[]>(res)
+  },
+
+  async validateSubject(name: string): Promise<SubjectItem> {
+    const res = await fetch(`${BASE_URL}/chat/subjects/validate`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', ...getAuthHeader() },
+      body: JSON.stringify({ name, topics: [] }),
+    })
+    return handleResponse<SubjectItem>(res)
   },
 
   async startSession(subject: string, topics: string[]): Promise<{ session_id: string }> {
@@ -150,11 +202,73 @@ export const api = {
     return handleResponse<{ response: string }>(res)
   },
 
-  async getHistory(sessionId: string): Promise<{ messages: ChatMessage[]; learning_plan?: any; subject: string }> {
+  async getHistory(sessionId: string): Promise<{
+    messages: ChatMessage[]
+    learning_plan?: any
+    subject: string
+    topics?: string[]
+    title?: string
+    highlights?: Array<{
+      element_id?: string
+      quoted_text: string
+      question?: string
+      tag?: string
+      created_at?: string
+    }>
+  }> {
     const res = await fetch(`${BASE_URL}/chat/${sessionId}/history`, {
       headers: getAuthHeader(),
     })
-    return handleResponse<{ messages: ChatMessage[]; learning_plan?: any; subject: string }>(res)
+    return handleResponse<{
+      messages: ChatMessage[]
+      learning_plan?: any
+      subject: string
+      topics?: string[]
+      title?: string
+      highlights?: Array<{
+        element_id?: string
+        quoted_text: string
+        question?: string
+        tag?: string
+        created_at?: string
+      }>
+    }>(res)
+  },
+
+  async addHighlight(
+    sessionId: string,
+    highlight: { element_id?: string; quoted_text: string; question?: string; tag?: string }
+  ): Promise<any> {
+    const res = await fetch(`${BASE_URL}/chat/${sessionId}/highlight`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', ...getAuthHeader() },
+      body: JSON.stringify(highlight),
+    })
+    return handleResponse<any>(res)
+  },
+
+  async getHighlights(sessionId: string): Promise<any[]> {
+    const res = await fetch(`${BASE_URL}/chat/${sessionId}/highlights`, {
+      headers: getAuthHeader(),
+    })
+    return handleResponse<any[]>(res)
+  },
+
+  async deleteHighlight(sessionId: string, index: number): Promise<any> {
+    const res = await fetch(`${BASE_URL}/chat/${sessionId}/highlight/${index}`, {
+      method: 'DELETE',
+      headers: getAuthHeader(),
+    })
+    return handleResponse<any>(res)
+  },
+
+  async getLearningPlan(sessionId: string): Promise<LearningPlan> {
+    const res = await fetch(`${BASE_URL}/chat/learning/plan`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', ...getAuthHeader() },
+      body: JSON.stringify({ session_id: sessionId }),
+    })
+    return handleResponse<LearningPlan>(res)
   },
 
   async generateTextbook(sessionId: string, topicOverride?: string): Promise<TextbookArticle> {

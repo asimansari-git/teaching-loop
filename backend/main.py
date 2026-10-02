@@ -10,7 +10,10 @@ Base.metadata.create_all(bind=engine)
 app = FastAPI(title="Teaching Platform API")
 
 # Strict CORS middleware
-allowed_origins_env = os.getenv("ALLOWED_ORIGINS", "http://localhost:8501,http://127.0.0.1:8501")
+allowed_origins_env = os.getenv(
+    "ALLOWED_ORIGINS",
+    "http://localhost:8501,http://127.0.0.1:8501,http://localhost:3000,http://127.0.0.1:3000,http://localhost:5173,http://127.0.0.1:5173"
+)
 allowed_origins = [origin.strip() for origin in allowed_origins_env.split(",") if origin.strip()]
 
 app.add_middleware(

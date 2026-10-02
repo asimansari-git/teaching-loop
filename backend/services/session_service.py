@@ -33,11 +33,17 @@ def get_user_sessions(username: str) -> list[dict]:
     cursor = db.chat_sessions.find({"username": username}).sort("last_updated", -1)
     sessions = []
     for doc in cursor:
+        subject = doc.get("subject", "General")
+        topics = doc.get("topics", [])
+        title = doc.get("title")
+        if not title:
+            title = f"{subject} - {', '.join(topics)}" if topics else f"{subject} - General"
         sessions.append({
             "session_id": str(doc["_id"]),
-            "title": doc.get("title", "Untitled Session"),
+            "title": title,
             "created_at": doc.get("created_at"),
-            "subject": doc.get("subject", "General")
+            "subject": subject,
+            "topics": topics
         })
     return sessions
 
@@ -52,10 +58,17 @@ def get_session_history(session_id: str) -> dict:
     
     session = db.chat_sessions.find_one({"_id": oid})
     if session:
+        subject = session.get("subject", "General")
+        topics = session.get("topics", [])
+        title = session.get("title")
+        if not title:
+            title = f"{subject} - {', '.join(topics)}" if topics else f"{subject} - General"
         return {
             "messages": session.get("messages", []),
             "learning_plan": session.get("learning_plan", {}),
-            "subject": session.get("subject", "General")
+            "subject": subject,
+            "topics": topics,
+            "title": title
         }
     return {"messages": [], "learning_plan": {}}
 

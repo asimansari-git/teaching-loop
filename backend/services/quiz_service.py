@@ -153,10 +153,21 @@ async def generate_quiz_from_llm(subject: str, difficulty: str, context: str = "
         if text.endswith("```"):
             text = text[:-3]
         parsed = json.loads(text.strip())
+        raw_questions = []
         if isinstance(parsed, dict) and "questions" in parsed and len(parsed["questions"]) > 0:
-            return parsed
+            raw_questions = parsed["questions"]
         elif isinstance(parsed, list) and len(parsed) > 0:
-            return {"questions": parsed}
+            raw_questions = parsed
+
+        if raw_questions:
+            normalized_questions = []
+            for item in raw_questions:
+                q = dict(item)
+                prompt_text = q.get("text") or q.get("question") or q.get("prompt") or ""
+                q["text"] = prompt_text
+                q["question"] = prompt_text
+                normalized_questions.append(q)
+            return {"questions": normalized_questions}
     except Exception as e:
         logger.error(f"Error generating quiz from LLM: {e}")
 

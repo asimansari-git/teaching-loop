@@ -14,11 +14,11 @@ export function Navbar({ activeView, onViewChange }: NavbarProps) {
 
   return (
     <header className="sticky top-0 z-40 w-full border-b bg-background/95 backdrop-blur supports-[backdrop-filter]:bg-background/60">
-      <div className="container mx-auto flex h-14 items-center justify-between px-4">
+      <div className="flex h-14 items-center justify-between px-4">
         <div className="flex items-center gap-3">
           <div className="flex items-center gap-2 font-bold text-lg text-primary">
-            <BookOpen className="h-6 w-6 text-primary" />
-            <span>Socratic Workspace</span>
+            <BookOpen className="h-5 w-5 text-primary" />
+            <span>Teach Loop</span>
           </div>
 
           {user && (

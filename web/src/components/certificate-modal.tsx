@@ -30,6 +30,10 @@ export function CertificateModal({ isOpen, onClose, sessionId, subject }: Certif
   const [error, setError] = useState<string | null>(null)
 
   const handleGenerateCertificate = async () => {
+    if (!sessionId) {
+      setError('Please select or create an active session first before requesting a certificate.')
+      return
+    }
     setLoading(true)
     setError(null)
     try {

@@ -29,6 +29,10 @@ export function QuizModal({ isOpen, onClose, sessionId }: QuizModalProps) {
 
   const handleGenerateQuiz = async (selectedDiff: 'easy' | 'mid' | 'hard') => {
     setDifficulty(selectedDiff)
+    if (!sessionId) {
+      setError('Please select or create an active session first before generating an assessment.')
+      return
+    }
     setLoading(true)
     setError(null)
     setQuizResult(null)
@@ -132,9 +136,9 @@ export function QuizModal({ isOpen, onClose, sessionId }: QuizModalProps) {
         ) : quizData && quizData.questions ? (
           <div className="space-y-6 py-2">
             {quizData.questions.map((q: any, qIdx: number) => (
-              <Card key={qIdx} className="p-4 space-y-3 bg-muted/20">
-                <p className="font-medium text-sm">
-                  {qIdx + 1}. {q.question || q.prompt}
+              <Card key={qIdx} className="p-4 space-y-3 bg-card border border-border shadow-xs">
+                <p className="font-semibold text-sm text-foreground">
+                  {qIdx + 1}. {q.text || q.question || q.prompt || 'Question'}
                 </p>
                 <div className="space-y-2">
                   {(q.options || []).map((opt: string, optIdx: number) => {
@@ -147,10 +151,10 @@ export function QuizModal({ isOpen, onClose, sessionId }: QuizModalProps) {
                         className={`w-full text-left p-2.5 rounded-md text-xs transition-colors border ${
                           isSelected
                             ? 'bg-primary text-primary-foreground border-primary font-medium'
-                            : 'bg-background hover:bg-muted border-border'
+                            : 'bg-card text-card-foreground hover:bg-muted border-border'
                         }`}
                       >
-                        {String.fromCharCode(65 + optIdx)}. {opt}
+                        <span className="font-semibold mr-1.5">{String.fromCharCode(65 + optIdx)}.</span> {opt}
                       </button>
                     )
                   })}

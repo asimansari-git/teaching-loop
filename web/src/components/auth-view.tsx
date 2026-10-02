@@ -57,12 +57,13 @@ export function AuthView() {
     setError(null)
     setLoading(true)
     try {
+      const isTeacherCreatingOrg = regRole === 'teacher' && (regOrgId === 'new' || organizations.length === 0)
       await register({
         username: regUsername,
         password: regPassword,
         role: regRole,
-        organization_id: regOrgId && regOrgId !== 'new' ? Number(regOrgId) : undefined,
-        new_organization_name: regOrgId === 'new' ? newOrgName : undefined,
+        organization_id: isTeacherCreatingOrg ? undefined : Number(regOrgId),
+        new_organization_name: isTeacherCreatingOrg ? newOrgName : undefined,
       })
     } catch (err: any) {
       setError(err.message || 'Registration failed')
@@ -162,6 +163,8 @@ export function AuthView() {
                       setRegRole(role)
                       if (role === 'teacher' && organizations.length === 0) {
                         setRegOrgId('new')
+                      } else if (role === 'student' && organizations.length > 0 && regOrgId === 'new') {
+                        setRegOrgId(String(organizations[0].id))
                       }
                     }}
                   >
